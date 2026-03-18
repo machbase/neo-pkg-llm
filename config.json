@@ -1,0 +1,20 @@
+{
+  "machbase": {
+    "host": "127.0.0.1",
+    "port": "5654",
+    "user": "sys",
+    "password": "manager"
+  },
+  "claude": {
+    "api_key": "",
+    "models": []
+  },
+  "chatgpt": {
+    "api_key": "",
+    "models": []
+  },
+  "gemini": {
+    "api_key": "",
+    "models": []
+  }
+}
