@@ -98,6 +98,10 @@ neo-pkg-llm/
 ## 사용법
 
 ```bash
+
+# 의존성 설치
+go mod tidy
+
 # 빌드
 go build -o neo-pkg-llm .
 
