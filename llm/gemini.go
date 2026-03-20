@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -262,7 +263,7 @@ func geminiResponseToMessage(resp *geminiResponse) Message {
 
 // --- API calls ---
 
-func (c *GeminiClient) Chat(messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
+func (c *GeminiClient) Chat(ctx context.Context, messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
 	system, contents := messagesToGemini(messages)
 	tools := toolDefsToGemini(toolDefs)
 
@@ -274,7 +275,7 @@ func (c *GeminiClient) Chat(messages []Message, toolDefs []map[string]any) (*Cha
 
 	body, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", c.BaseURL, c.Model, c.APIKey)
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -324,7 +325,7 @@ func (c *GeminiClient) Chat(messages []Message, toolDefs []map[string]any) (*Cha
 	}, nil
 }
 
-func (c *GeminiClient) ChatStream(messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {
+func (c *GeminiClient) ChatStream(ctx context.Context, messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {
 	system, contents := messagesToGemini(messages)
 	tools := toolDefsToGemini(toolDefs)
 
@@ -336,7 +337,7 @@ func (c *GeminiClient) ChatStream(messages []Message, toolDefs []map[string]any,
 
 	body, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", c.BaseURL, c.Model, c.APIKey)
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)

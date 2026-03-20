@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -309,7 +310,7 @@ func ClaudeResponseToMessage(resp *ClaudeResponse) Message {
 // --- API calls ---
 
 // Chat sends a non-streaming request to Claude API.
-func (c *ClaudeClient) Chat(messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
+func (c *ClaudeClient) Chat(ctx context.Context, messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
 	system, claudeMsgs := MessagesToClaudeMessages(messages)
 	claudeTools := ToolDefsToClaudeTools(toolDefs)
 
@@ -322,7 +323,7 @@ func (c *ClaudeClient) Chat(messages []Message, toolDefs []map[string]any) (*Cha
 	}
 
 	body, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequest("POST", c.BaseURL+"/v1/messages", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/messages", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
@@ -353,7 +354,7 @@ func (c *ClaudeClient) Chat(messages []Message, toolDefs []map[string]any) (*Cha
 }
 
 // ChatStream sends a streaming request to Claude API.
-func (c *ClaudeClient) ChatStream(messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {
+func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {
 	system, claudeMsgs := MessagesToClaudeMessages(messages)
 	claudeTools := ToolDefsToClaudeTools(toolDefs)
 
@@ -367,7 +368,7 @@ func (c *ClaudeClient) ChatStream(messages []Message, toolDefs []map[string]any,
 	}
 
 	body, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequest("POST", c.BaseURL+"/v1/messages", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/messages", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")

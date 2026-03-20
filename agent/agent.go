@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -66,11 +67,12 @@ var (
 
 // Agent orchestrates the LLM ↔ tools loop.
 type Agent struct {
-	llm      llm.LLMProvider
-	registry *tools.Registry
-	messages []llm.Message
-	maxSteps int
-	advanced bool // true = 고급 분석 (TQL templates), false = 기본 분석 (table-based)
+	llm       llm.LLMProvider
+	registry  *tools.Registry
+	messages  []llm.Message
+	maxSteps  int
+	advanced  bool     // true = 고급 분석 (TQL templates), false = 기본 분석 (table-based)
+	knownTags []string // list_table_tags 결과를 저장하여 TAG 검증에 사용
 }
 
 func NewAgent(llmClient llm.LLMProvider, registry *tools.Registry) *Agent {
@@ -82,7 +84,7 @@ func NewAgent(llmClient llm.LLMProvider, registry *tools.Registry) *Agent {
 }
 
 // Run executes the agent loop and returns the final text response.
-func (a *Agent) Run(query string) (string, error) {
+func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 	a.initMessages(query)
 	LoadTemplates()
 
@@ -92,7 +94,10 @@ func (a *Agent) Run(query string) (string, error) {
 
 	step := 0
 	for iter := 0; iter < a.maxSteps; iter++ {
-		resp, err := a.llm.Chat(a.messages, a.registry.AllToolDefs())
+		if ctx.Err() != nil {
+			return "사용자에 의해 중단되었습니다.", nil
+		}
+		resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
 		if err != nil {
 			return "", fmt.Errorf("LLM call failed at step %d: %w", step, err)
 		}
@@ -101,20 +106,19 @@ func (a *Agent) Run(query string) (string, error) {
 		msg = a.fixToolCalls(msg)
 
 		if a.advanced {
-			msg = a.guardDashboardEarlyCall(msg)
+			msg = a.guardDashboardEarlyCall(ctx, msg)
 		}
-		msg = a.guardConsecutiveFailure(msg)
+		msg = a.guardConsecutiveFailure(ctx, msg)
 
 		if len(msg.ToolCalls) == 0 {
 			if a.advanced {
-				msg = a.guardChartOmission(msg)
+				msg = a.guardChartOmission(ctx, msg)
 			}
 
 			if len(msg.ToolCalls) == 0 {
 				// Guard: empty response
 				if msg.Content == "" {
 					fmt.Println("\n[Agent] 빈 응답 → 재시도")
-					a.messages = append(a.messages, msg)
 					a.messages = append(a.messages, llm.Message{
 						Role:    "user",
 						Content: "작업이 완료되지 않았습니다. 다음 단계를 계속 진행하세요.",
@@ -129,6 +133,9 @@ func (a *Agent) Run(query string) (string, error) {
 		// Execute tool calls
 		a.messages = append(a.messages, msg)
 		for _, tc := range msg.ToolCalls {
+			if ctx.Err() != nil {
+				return "사용자에 의해 중단되었습니다.", nil
+			}
 			step++
 			fmt.Printf("\n[Step %d] 도구 호출: %s\n", step, tc.Function.Name)
 			args := tc.Function.Arguments
@@ -142,6 +149,18 @@ func (a *Agent) Run(query string) (string, error) {
 				}
 			}
 
+			// TAG 검증: TQL 관련 도구 호출 시 태그명 확인
+			if tagErr := a.validateTagInArgs(tc.Function.Name, tc.Function.Arguments); tagErr != "" {
+				result := tagErr
+				fmt.Printf("  └─ ✗ TAG ERROR: %s\n", truncate(result, 500))
+				fmt.Println(strings.Repeat("-", 60))
+				a.messages = append(a.messages, llm.Message{
+					Role:    "tool",
+					Content: result,
+				})
+				continue
+			}
+
 			result, err := a.registry.ExecuteMap(tc.Function.Name, tc.Function.Arguments)
 			if err != nil {
 				result = fmt.Sprintf("Error: %v", err)
@@ -150,6 +169,11 @@ func (a *Agent) Run(query string) (string, error) {
 				fmt.Printf("  └─ ✓: %s\n", truncate(result, 500))
 			}
 			fmt.Println(strings.Repeat("-", 60))
+
+			// list_table_tags 결과에서 태그 목록 캡처
+			if tc.Function.Name == "list_table_tags" && err == nil {
+				a.captureKnownTags(result)
+			}
 
 			a.messages = append(a.messages, llm.Message{
 				Role:    "tool",
@@ -170,7 +194,7 @@ func truncate(s string, max int) string {
 }
 
 // RunStream executes the agent loop and yields events via a channel.
-func (a *Agent) RunStream(query string) <-chan Event {
+func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 	ch := make(chan Event, 100)
 
 	go func() {
@@ -182,7 +206,11 @@ func (a *Agent) RunStream(query string) <-chan Event {
 
 		step := 0
 		for step < a.maxSteps {
-			resp, err := a.llm.ChatStream(a.messages, a.registry.AllToolDefs(), func(partial *llm.ChatResponse) {
+			if ctx.Err() != nil {
+				ch <- Event{Type: EventFinal, Content: "사용자에 의해 중단되었습니다."}
+				return
+			}
+			resp, err := a.llm.ChatStream(ctx, a.messages, a.registry.AllToolDefs(), func(partial *llm.ChatResponse) {
 				if partial.Message.Content != "" {
 					ch <- Event{Type: EventStream, Content: partial.Message.Content}
 				}
@@ -195,18 +223,17 @@ func (a *Agent) RunStream(query string) <-chan Event {
 			msg := resp.Message
 			msg = a.fixToolCalls(msg)
 			if a.advanced {
-				msg = a.guardDashboardEarlyCall(msg)
+				msg = a.guardDashboardEarlyCall(ctx, msg)
 			}
-			msg = a.guardConsecutiveFailure(msg)
+			msg = a.guardConsecutiveFailure(ctx, msg)
 
 			if len(msg.ToolCalls) == 0 {
 				if a.advanced {
-					msg = a.guardChartOmission(msg)
+					msg = a.guardChartOmission(ctx, msg)
 				}
 
 				if len(msg.ToolCalls) == 0 {
 					if msg.Content == "" {
-						a.messages = append(a.messages, msg)
 						a.messages = append(a.messages, llm.Message{
 							Role:    "user",
 							Content: "작업이 완료되지 않았습니다. 다음 단계를 계속 진행하세요.",
@@ -221,12 +248,30 @@ func (a *Agent) RunStream(query string) <-chan Event {
 			// Execute tool calls
 			a.messages = append(a.messages, msg)
 			for _, tc := range msg.ToolCalls {
+				if ctx.Err() != nil {
+					ch <- Event{Type: EventFinal, Content: "사용자에 의해 중단되었습니다."}
+					return
+				}
 				step++
 				ch <- Event{
 					Type: EventToolCall,
 					Step: step,
 					Name: tc.Function.Name,
 					Args: tc.Function.Arguments,
+				}
+
+				// TAG 검증: TQL 관련 도구 호출 시 태그명 확인
+				if tagErr := a.validateTagInArgs(tc.Function.Name, tc.Function.Arguments); tagErr != "" {
+					ch <- Event{
+						Type:    EventToolResult,
+						Status:  "error",
+						Content: tagErr,
+					}
+					a.messages = append(a.messages, llm.Message{
+						Role:    "tool",
+						Content: tagErr,
+					})
+					continue
 				}
 
 				result, err := a.registry.ExecuteMap(tc.Function.Name, tc.Function.Arguments)
@@ -240,6 +285,11 @@ func (a *Agent) RunStream(query string) <-chan Event {
 					Type:    EventToolResult,
 					Status:  status,
 					Content: result,
+				}
+
+				// list_table_tags 결과에서 태그 목록 캡처
+				if tc.Function.Name == "list_table_tags" && err == nil {
+					a.captureKnownTags(result)
 				}
 
 				a.messages = append(a.messages, llm.Message{
@@ -469,7 +519,7 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 
 // --- Guard: dashboard early-call defense ---
 
-func (a *Agent) guardDashboardEarlyCall(msg llm.Message) llm.Message {
+func (a *Agent) guardDashboardEarlyCall(ctx context.Context, msg llm.Message) llm.Message {
 	if len(msg.ToolCalls) == 0 || !dashboardTools[msg.ToolCalls[0].Function.Name] {
 		return msg
 	}
@@ -529,7 +579,7 @@ func (a *Agent) guardDashboardEarlyCall(msg llm.Message) llm.Message {
 		),
 	})
 
-	resp, err := a.llm.Chat(a.messages, a.registry.AllToolDefs())
+	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
 	if err != nil {
 		return msg
 	}
@@ -538,7 +588,7 @@ func (a *Agent) guardDashboardEarlyCall(msg llm.Message) llm.Message {
 
 // --- Guard: consecutive failure detection ---
 
-func (a *Agent) guardConsecutiveFailure(msg llm.Message) llm.Message {
+func (a *Agent) guardConsecutiveFailure(ctx context.Context, msg llm.Message) llm.Message {
 	if len(msg.ToolCalls) == 0 {
 		return msg
 	}
@@ -576,7 +626,7 @@ func (a *Agent) guardConsecutiveFailure(msg llm.Message) llm.Message {
 	}
 	a.messages = append(a.messages, llm.Message{Role: "user", Content: hint})
 
-	resp, err := a.llm.Chat(a.messages, a.registry.AllToolDefs())
+	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
 	if err != nil {
 		return msg
 	}
@@ -585,7 +635,7 @@ func (a *Agent) guardConsecutiveFailure(msg llm.Message) llm.Message {
 
 // --- Guard: chart omission check ---
 
-func (a *Agent) guardChartOmission(msg llm.Message) llm.Message {
+func (a *Agent) guardChartOmission(ctx context.Context, msg llm.Message) llm.Message {
 	if msg.Content == "" || len(msg.ToolCalls) > 0 {
 		return msg
 	}
@@ -625,7 +675,7 @@ func (a *Agent) guardChartOmission(msg llm.Message) llm.Message {
 		),
 	})
 
-	resp, err := a.llm.Chat(a.messages, a.registry.AllToolDefs())
+	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
 	if err != nil {
 		return msg
 	}
@@ -727,11 +777,31 @@ func (a *Agent) countAddChartCalls(msgs []llm.Message) int {
 			for _, tc := range msg.ToolCalls {
 				if tc.Function.Name == "add_chart_to_dashboard" {
 					count++
+				} else if tc.Function.Name == "create_dashboard_with_charts" {
+					count += countChartsInArgs(tc.Function.Arguments)
 				}
 			}
 		}
 	}
 	return count
+}
+
+// countChartsInArgs extracts the number of charts from create_dashboard_with_charts arguments.
+func countChartsInArgs(args map[string]any) int {
+	charts, ok := args["charts"]
+	if !ok {
+		return 0
+	}
+	switch c := charts.(type) {
+	case []any:
+		return len(c)
+	case string:
+		var arr []any
+		if json.Unmarshal([]byte(c), &arr) == nil {
+			return len(arr)
+		}
+	}
+	return 0
 }
 
 func (a *Agent) countConsecutiveFailures(toolName string) int {
@@ -762,6 +832,84 @@ func (a *Agent) countConsecutiveFailures(toolName string) int {
 		}
 	}
 	return count
+}
+
+// captureKnownTags parses list_table_tags result and stores tag names.
+// Result format: "NAME\ntag1\ntag2\n..."
+func (a *Agent) captureKnownTags(result string) {
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	a.knownTags = nil
+	for _, line := range lines {
+		tag := strings.TrimSpace(line)
+		if tag != "" && tag != "NAME" {
+			a.knownTags = append(a.knownTags, tag)
+		}
+	}
+	if len(a.knownTags) > 0 {
+		fmt.Printf("  [guard] Known tags captured: %d tags\n", len(a.knownTags))
+	}
+}
+
+// validateTagInArgs checks if TAG parameters in TQL-related tool calls use valid tag names.
+// Returns error string if invalid, empty string if OK.
+func (a *Agent) validateTagInArgs(toolName string, args map[string]any) string {
+	if len(a.knownTags) == 0 {
+		return "" // no tags captured yet, skip validation
+	}
+
+	// Only validate TQL-related tools
+	if toolName != "save_tql_file" && toolName != "execute_tql_script" && toolName != "validate_chart_tql" {
+		return ""
+	}
+
+	// Extract TQL content
+	tql, _ := args["tql_content"].(string)
+	if tql == "" {
+		tql, _ = args["tql_script"].(string)
+	}
+	if tql == "" {
+		return ""
+	}
+
+	// Check for NAME = 'tag' patterns in TQL
+	nameRE := regexp.MustCompile(`NAME\s*=\s*'([^']+)'`)
+	matches := nameRE.FindAllStringSubmatch(tql, -1)
+
+	tagSet := make(map[string]bool)
+	for _, t := range a.knownTags {
+		tagSet[t] = true
+	}
+
+	var invalidTags []string
+	for _, m := range matches {
+		if len(m) > 1 && !tagSet[m[1]] {
+			invalidTags = append(invalidTags, m[1])
+		}
+	}
+
+	// Also check NAME IN ('tag1', 'tag2') patterns
+	inRE := regexp.MustCompile(`NAME\s+IN\s*\(([^)]+)\)`)
+	inMatches := inRE.FindAllStringSubmatch(tql, -1)
+	for _, m := range inMatches {
+		if len(m) > 1 {
+			tagListRE := regexp.MustCompile(`'([^']+)'`)
+			tags := tagListRE.FindAllStringSubmatch(m[1], -1)
+			for _, t := range tags {
+				if len(t) > 1 && !tagSet[t[1]] {
+					invalidTags = append(invalidTags, t[1])
+				}
+			}
+		}
+	}
+
+	if len(invalidTags) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"Error: 존재하지 않는 태그명이 사용되었습니다: %v\n사용 가능한 태그 목록: %v",
+		invalidTags, a.knownTags,
+	)
 }
 
 func isAllDigits(s string) bool {

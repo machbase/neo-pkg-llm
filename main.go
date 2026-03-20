@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,8 +20,9 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "server", "Run mode: 'server' (HTTP API), 'cli' (interactive), or 'mcp' (MCP stdio server)")
+	mode := flag.String("mode", "server", "Run mode: 'server' (HTTP API), 'cli' (interactive), 'mcp' (MCP stdio server), or 'ws' (WebSocket client)")
 	port := flag.String("port", "8080", "HTTP server port (server mode)")
+	neoWSURL := flag.String("neo-ws-url", "", "Neo WebSocket URL to connect to (ws mode)")
 	configPath := flag.String("config", "config.json", "Path to config file")
 	providerFlag := flag.String("provider", "", "Override LLM provider (claude, chatgpt, gemini)")
 	modelFlag := flag.String("model", "", "Override model name or model_id")
@@ -43,8 +45,10 @@ func main() {
 		runServer(cfg, *port)
 	case "mcp":
 		runMCP(cfg)
+	case "ws":
+		runWS(cfg, *neoWSURL)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown mode: %s (use 'server', 'cli', or 'mcp')\n", *mode)
+		fmt.Fprintf(os.Stderr, "Unknown mode: %s (use 'server', 'cli', 'mcp', or 'ws')\n", *mode)
 		os.Exit(1)
 	}
 }
@@ -75,8 +79,13 @@ func newLLMSafe(cfg *Config) (llm.LLMProvider, error) {
 		log.Printf("LLM: Gemini (%s)", modelID)
 		return llm.NewGeminiClient(cfg.Gemini.APIKey, modelID), nil
 
+	case "ollama":
+		ollamaURL := cfg.OllamaURL()
+		log.Printf("LLM: Ollama (%s) at %s", modelID, ollamaURL)
+		return llm.NewOllamaClient(ollamaURL, modelID), nil
+
 	default:
-		return nil, fmt.Errorf("unknown provider: %s (use 'claude', 'chatgpt', or 'gemini')", cfg.ResolveProvider())
+		return nil, fmt.Errorf("unknown provider: %s (use 'claude', 'chatgpt', 'gemini', or 'ollama')", cfg.ResolveProvider())
 	}
 }
 
@@ -99,6 +108,23 @@ func runMCP(cfg *Config) {
 	if err := server.Run(); err != nil {
 		log.Fatalf("MCP server error: %v", err)
 	}
+}
+
+// --- WebSocket Client Mode ---
+
+func runWS(cfg *Config, neoURL string) {
+	if neoURL == "" {
+		log.Fatal("--neo-ws-url is required for ws mode")
+	}
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
+	registry := tools.NewRegistry(mc)
+	llmClient := newLLM(cfg)
+
+	log.Printf("WebSocket client mode: connecting to %s", neoURL)
+	log.Printf("Machbase: %s | Provider: %s | Model: %s", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
+
+	client := newWSClient(neoURL, llmClient, registry)
+	client.Run()
 }
 
 // --- CLI Mode ---
@@ -125,7 +151,7 @@ func runCLI(cfg *Config) {
 		}
 
 		ag := agent.NewAgent(llmClient, registry)
-		result, err := ag.Run(query)
+		result, err := ag.Run(context.Background(), query)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
@@ -174,6 +200,7 @@ func runServer(cfg *Config, port string) {
 			cfg.Claude = newCfg.Claude
 			cfg.ChatGPT = newCfg.ChatGPT
 			cfg.Gemini = newCfg.Gemini
+			cfg.Ollama = newCfg.Ollama
 			// Save to file
 			if err := cfg.Save(); err != nil {
 				http.Error(w, "Save failed: "+err.Error(), http.StatusInternalServerError)
@@ -240,7 +267,7 @@ func runServer(cfg *Config, port string) {
 
 		currentLLM, currentRegistry := getClients()
 		ag := agent.NewAgent(currentLLM, currentRegistry)
-		result, err := ag.Run(req.Query)
+		result, err := ag.Run(r.Context(), req.Query)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -280,7 +307,7 @@ func runServer(cfg *Config, port string) {
 
 		currentLLM, currentRegistry := getClients()
 		ag := agent.NewAgent(currentLLM, currentRegistry)
-		events := ag.RunStream(req.Query)
+		events := ag.RunStream(r.Context(), req.Query)
 
 		for event := range events {
 			data, _ := json.Marshal(event)

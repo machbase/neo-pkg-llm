@@ -1,11 +1,14 @@
 package llm
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 // LLMProvider is the interface that all LLM clients implement.
 type LLMProvider interface {
-	Chat(messages []Message, tools []map[string]any) (*ChatResponse, error)
-	ChatStream(messages []Message, tools []map[string]any, cb StreamCallback) (*ChatResponse, error)
+	Chat(ctx context.Context, messages []Message, tools []map[string]any) (*ChatResponse, error)
+	ChatStream(ctx context.Context, messages []Message, tools []map[string]any, cb StreamCallback) (*ChatResponse, error)
 }
 
 // StreamCallback is called for each streaming chunk.

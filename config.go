@@ -27,11 +27,21 @@ type APIProviderConfig struct {
 	Models []ModelEntry `json:"models"`
 }
 
+type OllamaConfig struct {
+	BaseURL     string       `json:"base_url"`
+	Models      []ModelEntry `json:"models"`
+	Temperature *float64     `json:"temperature,omitempty"`
+	NumPredict  int          `json:"num_predict,omitempty"`
+	NumCtx      int          `json:"num_ctx,omitempty"`
+	NumGPU      int          `json:"num_gpu,omitempty"`
+}
+
 type Config struct {
 	Machbase MachbaseConfig    `json:"machbase"`
 	Claude   APIProviderConfig `json:"claude"`
 	ChatGPT  APIProviderConfig `json:"chatgpt"`
 	Gemini   APIProviderConfig `json:"gemini"`
+	Ollama   OllamaConfig      `json:"ollama"`
 
 	// Runtime only (CLI flags / env vars, not saved to config.json)
 	Provider string `json:"-"`
@@ -53,6 +63,7 @@ func defaultConfig() *Config {
 		Claude:  APIProviderConfig{Models: []ModelEntry{}},
 		ChatGPT: APIProviderConfig{Models: []ModelEntry{}},
 		Gemini:  APIProviderConfig{Models: []ModelEntry{}},
+		Ollama:  OllamaConfig{Models: []ModelEntry{}},
 	}
 }
 
@@ -120,12 +131,24 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("GEMINI_API_KEY"); v != "" {
 		c.Gemini.APIKey = v
 	}
+	if v := os.Getenv("OLLAMA_BASE_URL"); v != "" {
+		c.Ollama.BaseURL = v
+	}
 }
 
 // --- Resolve helpers ---
 
 func (c *Config) MachbaseURL() string {
 	return "http://" + c.Machbase.Host + ":" + c.Machbase.Port
+}
+
+// OllamaURL returns the Ollama base URL.
+// If base_url is empty, uses the machbase host with default Ollama port 11434.
+func (c *Config) OllamaURL() string {
+	if c.Ollama.BaseURL != "" {
+		return c.Ollama.BaseURL
+	}
+	return "http://" + c.Machbase.Host + ":11434"
 }
 
 // ResolveProvider returns the active provider.
@@ -142,6 +165,9 @@ func (c *Config) ResolveProvider() string {
 	}
 	if c.Gemini.APIKey != "" {
 		return "gemini"
+	}
+	if c.Ollama.BaseURL != "" || len(c.Ollama.Models) > 0 {
+		return "ollama"
 	}
 	return "gemini" // fallback
 }
@@ -184,6 +210,8 @@ func (c *Config) GetAPIKey() string {
 		return c.ChatGPT.APIKey
 	case "gemini":
 		return c.Gemini.APIKey
+	case "ollama":
+		return "" // Ollama doesn't require API key
 	}
 	return ""
 }
@@ -196,6 +224,8 @@ func (c *Config) currentModels() []ModelEntry {
 		return c.ChatGPT.Models
 	case "gemini":
 		return c.Gemini.Models
+	case "ollama":
+		return c.Ollama.Models
 	}
 	return nil
 }

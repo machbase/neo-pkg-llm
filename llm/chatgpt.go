@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -147,7 +148,7 @@ func openaiResponseToMessage(resp *openaiResponse) Message {
 
 // --- API calls ---
 
-func (c *ChatGPTClient) Chat(messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
+func (c *ChatGPTClient) Chat(ctx context.Context, messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
 	reqBody := openaiRequest{
 		Model:    c.Model,
 		Messages: messagesToOpenAI(messages),
@@ -155,7 +156,7 @@ func (c *ChatGPTClient) Chat(messages []Message, toolDefs []map[string]any) (*Ch
 	}
 
 	body, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequest("POST", c.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
@@ -187,7 +188,7 @@ func (c *ChatGPTClient) Chat(messages []Message, toolDefs []map[string]any) (*Ch
 	}, nil
 }
 
-func (c *ChatGPTClient) ChatStream(messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {
+func (c *ChatGPTClient) ChatStream(ctx context.Context, messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {
 	reqBody := openaiRequest{
 		Model:    c.Model,
 		Messages: messagesToOpenAI(messages),
@@ -196,7 +197,7 @@ func (c *ChatGPTClient) ChatStream(messages []Message, toolDefs []map[string]any
 	}
 
 	body, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequest("POST", c.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
