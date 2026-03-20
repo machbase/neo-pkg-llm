@@ -76,6 +76,9 @@ func (r *Registry) registerSQLTools() {
 			if sql == "" {
 				return "", fmt.Errorf("sql_query is required")
 			}
+			if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "UPDATE") {
+				return "", fmt.Errorf("UPDATE 구문은 허용되지 않습니다")
+			}
 			format := argStr(args, "format", "csv")
 			timeformat := argStr(args, "timeformat", "default")
 			tz := argStr(args, "timezone", "Local")
