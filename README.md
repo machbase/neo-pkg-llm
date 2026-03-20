@@ -103,7 +103,7 @@ neo-pkg-llm/
 go mod tidy
 
 # 빌드
-go build -o neo-pkg-llm .
+go build -o neo-pkg-llm.exe .
 
 # HTTP 서버 모드 (기본값)
 ./neo-pkg-llm -mode server -port 8080
