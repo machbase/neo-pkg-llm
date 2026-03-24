@@ -148,15 +148,70 @@ func addFileToTar(tw *tar.Writer, path string) error {
 }
 
 func addDirToTar(tw *tar.Writer, dir string) error {
-	return tw.WriteHeader(&tar.Header{
-		Typeflag: tar.TypeDir,
-		Name:     dir + "/",
-		Mode:     0755,
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return tw.WriteHeader(&tar.Header{
+				Typeflag: tar.TypeDir,
+				Name:     path + "/",
+				Mode:     0755,
+			})
+		}
+		return addFileToTarWithPath(tw, path)
 	})
 }
 
 func addDirToZip(zw *zip.Writer, dir string) error {
-	_, err := zw.Create(dir + "/")
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			_, err := zw.Create(path + "/")
+			return err
+		}
+		return addFileToZipWithPath(zw, path)
+	})
+}
+
+func addFileToTarWithPath(tw *tar.Writer, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+
+	hdr := &tar.Header{
+		Name: path,
+		Mode: int64(info.Mode()),
+		Size: info.Size(),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	_, err = io.Copy(tw, f)
+	return err
+}
+
+func addFileToZipWithPath(zw *zip.Writer, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w, err := zw.Create(path)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, f)
 	return err
 }
 
