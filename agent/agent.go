@@ -85,7 +85,11 @@ func NewAgent(llmClient llm.LLMProvider, registry *tools.Registry) *Agent {
 
 // Run executes the agent loop and returns the final text response.
 func (a *Agent) Run(ctx context.Context, query string) (string, error) {
-	a.initMessages(query)
+	if a.HasHistory() {
+		a.ContinueMessages(query)
+	} else {
+		a.initMessages(query)
+	}
 	LoadTemplates()
 
 	fmt.Printf("\n[Agent] 쿼리: %s\n", query)
@@ -200,7 +204,11 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 	go func() {
 		defer close(ch)
 
-		a.initMessages(query)
+		if a.HasHistory() {
+			a.ContinueMessages(query)
+		} else {
+			a.initMessages(query)
+		}
 		LoadTemplates()
 		ch <- Event{Type: EventStatus, Content: "에이전트 초기화 완료"}
 
@@ -346,6 +354,19 @@ func (a *Agent) initMessages(query string) {
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userContent},
 	}
+}
+
+// HasHistory returns true if the agent has prior conversation messages.
+func (a *Agent) HasHistory() bool {
+	return len(a.messages) > 0
+}
+
+// ContinueMessages appends a new user query to existing conversation history.
+func (a *Agent) ContinueMessages(query string) {
+	a.messages = append(a.messages, llm.Message{
+		Role:    "user",
+		Content: query,
+	})
 }
 
 // --- Tool call auto-fixing (mirrors Python _fix_tool_calls) ---
