@@ -1,0 +1,12 @@
+start:
+  - run: ./scripts/start.sh
+stop:
+  - run: ./scripts/stop.sh
+
+auto_start: true
+
+env:
+  - DEBUG=false
+
+stdout_log: debug
+stderr_log: warn
