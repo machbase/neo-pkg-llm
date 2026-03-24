@@ -2,6 +2,7 @@ package machbase
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -272,6 +273,68 @@ func (c *Client) WebPostRaw(path, contentType string, data []byte) ([]byte, erro
 		req.Header.Set("Content-Type", contentType)
 		return req, nil
 	})
+}
+
+// VerifyToken validates a Neo JWT token by calling /web/api/check.
+// Returns the login name (from JWT "sub" claim) on success, or an error if invalid/expired.
+func (c *Client) VerifyToken(token string) (string, error) {
+	req, _ := http.NewRequest("GET", c.BaseURL+"/web/api/check", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("token verify request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Success bool   `json:"success"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("token verify decode failed: %w", err)
+	}
+	if !result.Success {
+		return "", fmt.Errorf("invalid token: %s", result.Reason)
+	}
+
+	// Extract "sub" (loginName) from JWT payload
+	sub, err := jwtSubject(token)
+	if err != nil {
+		return "", fmt.Errorf("token parse failed: %w", err)
+	}
+	return sub, nil
+}
+
+// GetAccessToken performs login and returns the access token.
+func (c *Client) GetAccessToken() (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loginLocked()
+}
+
+// jwtSubject extracts the "sub" claim from a JWT without signature verification
+// (signature is already validated by Neo's /web/api/check).
+func jwtSubject(token string) (string, error) {
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid JWT format")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("JWT payload decode failed: %w", err)
+	}
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("JWT claims parse failed: %w", err)
+	}
+	if claims.Sub == "" {
+		return "", fmt.Errorf("JWT missing sub claim")
+	}
+	return claims.Sub, nil
 }
 
 // EscapePath escapes each segment of a path individually,
