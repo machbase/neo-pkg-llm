@@ -36,7 +36,12 @@ type OllamaConfig struct {
 	NumGPU      int          `json:"num_gpu,omitempty"`
 }
 
+type ServerConfig struct {
+	Port string `json:"port"`
+}
+
 type Config struct {
+	Server   ServerConfig      `json:"server"`
 	Machbase MachbaseConfig    `json:"machbase"`
 	Claude   APIProviderConfig `json:"claude"`
 	ChatGPT  APIProviderConfig `json:"chatgpt"`
@@ -54,6 +59,9 @@ type Config struct {
 
 func defaultConfig() *Config {
 	return &Config{
+		Server: ServerConfig{
+			Port: "",
+		},
 		Machbase: MachbaseConfig{
 			Host:     "127.0.0.1",
 			Port:     "5654",
