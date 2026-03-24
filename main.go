@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -21,7 +22,7 @@ import (
 
 func main() {
 	mode := flag.String("mode", "server", "Run mode: 'server' (HTTP API), 'cli' (interactive), 'mcp' (MCP stdio server), or 'ws' (WebSocket client)")
-	port := flag.String("port", "8080", "HTTP server port (server mode)")
+	port := flag.String("port", "", "HTTP server port (overrides config, server mode)")
 	neoWSURL := flag.String("neo-ws-url", "", "Neo WebSocket URL to connect to (ws mode)")
 	configPath := flag.String("config", "config.json", "Path to config file")
 	providerFlag := flag.String("provider", "", "Override LLM provider (claude, chatgpt, gemini)")
@@ -42,7 +43,14 @@ func main() {
 	case "cli":
 		runCLI(cfg)
 	case "server":
-		runServer(cfg, *port)
+		serverPort := cfg.Server.Port
+		if *port != "" {
+			serverPort = *port
+		}
+		if serverPort == "" {
+			log.Fatal("server port is required: set server.port in config or use --port flag")
+		}
+		runServer(cfg, serverPort)
 	case "mcp":
 		runMCP(cfg)
 	case "ws":
@@ -183,6 +191,30 @@ func runServer(cfg *Config, port string) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
+	// --- Login API (proxy to Machbase Neo) ---
+	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			return
+		}
+		// Forward login request to Machbase Neo
+		resp, err := http.Post(
+			cfg.MachbaseURL()+"/web/api/login",
+			"application/json",
+			r.Body,
+		)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Machbase login failed: " + err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	})
+
 	// --- Settings API ---
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -316,18 +348,25 @@ func runServer(cfg *Config, port string) {
 		}
 	})
 
+	// --- WebSocket Server (Chat UI direct connection) ---
+	wsServ := newWSServer(mc, cfg)
+	go wsServ.sessionReaper()
+	mux.Handle("/ws", wsServ)
+
 	handler := corsMiddleware(mux)
 
 	log.Printf("Agentic Loop Go server starting on :%s", port)
 	log.Printf("Machbase: %s | Provider: %s | Model: %s", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
 	log.Printf("Tools: %d loaded", len(registry.ToolNames()))
 	log.Printf("Endpoints:")
+	log.Printf("  POST /api/login           — Login (proxy to Machbase)")
 	log.Printf("  GET  /settings            — Settings page")
 	log.Printf("  GET  /api/settings        — Get config")
 	log.Printf("  POST /api/settings        — Save config")
 	log.Printf("  POST /api/restart-llm     — Restart LLM client")
 	log.Printf("  POST /api/chat            — Non-streaming")
 	log.Printf("  POST /api/chat/stream     — SSE streaming")
+	log.Printf("  GET  /ws                  — WebSocket (Chat UI)")
 	log.Printf("  GET  /health              — Health check")
 
 	if err := http.ListenAndServe(":"+port, handler); err != nil {

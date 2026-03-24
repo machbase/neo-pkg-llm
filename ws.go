@@ -18,6 +18,8 @@ import (
 type wsInMessage struct {
 	Type      string `json:"type"`
 	SessionID string `json:"session_id,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
 	Query     string `json:"query,omitempty"`
 }
 
@@ -31,19 +33,23 @@ type wsOutMessage struct {
 	Content   string         `json:"content,omitempty"`
 }
 
-// session tracks a running agent and its cancel function.
+// session tracks a persistent agent and its current cancel function.
 type session struct {
-	cancel context.CancelFunc
+	cancel   context.CancelFunc
+	agent    *agent.Agent // persistent agent for conversation continuity
+	lastUsed time.Time
 }
+
+const sessionTTL = 30 * time.Minute // sessions expire after 30 min of inactivity
 
 // wsClient manages the WebSocket connection to Neo.
 type wsClient struct {
-	url       string
-	llm       llm.LLMProvider
-	registry  *tools.Registry
-	conn      *websocket.Conn
-	writeMu   sync.Mutex
-	sessions  sync.Map // session_id → *session
+	url      string
+	llm      llm.LLMProvider
+	registry *tools.Registry
+	conn     *websocket.Conn
+	writeMu  sync.Mutex
+	sessions sync.Map // session_id → *session
 }
 
 func newWSClient(url string, llmClient llm.LLMProvider, registry *tools.Registry) *wsClient {
@@ -56,6 +62,7 @@ func newWSClient(url string, llmClient llm.LLMProvider, registry *tools.Registry
 
 // Run connects to Neo and processes messages. Reconnects on failure.
 func (w *wsClient) Run() {
+	go w.sessionReaper()
 	for {
 		err := w.connect()
 		if err != nil {
@@ -79,7 +86,7 @@ func (w *wsClient) connect() error {
 	for {
 		var msg wsInMessage
 		if err := conn.ReadJSON(&msg); err != nil {
-			// Cancel all running sessions on disconnect
+			// Cancel all running queries on disconnect
 			w.sessions.Range(func(key, val any) bool {
 				if s, ok := val.(*session); ok {
 					s.cancel()
@@ -102,15 +109,40 @@ func (w *wsClient) connect() error {
 }
 
 func (w *wsClient) handleChat(sessionID, query string) {
+	// --- Session management ---
+	var sess *session
+	if val, ok := w.sessions.Load(sessionID); ok {
+		sess = val.(*session)
+		// Cancel any previously running query in this session
+		sess.cancel()
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
-	w.sessions.Store(sessionID, &session{cancel: cancel})
+
+	if sess == nil {
+		// New session: create agent with fresh conversation
+		sess = &session{
+			cancel:   cancel,
+			agent:    agent.NewAgent(w.llm, w.registry),
+			lastUsed: time.Now(),
+		}
+		w.sessions.Store(sessionID, sess)
+		log.Printf("[WS] New session: %s", sessionID)
+	} else {
+		// Existing session: update cancel func and timestamp, reuse agent
+		sess.cancel = cancel
+		sess.lastUsed = time.Now()
+		log.Printf("[WS] Continuing session: %s", sessionID)
+	}
+
 	defer func() {
 		cancel()
-		w.sessions.Delete(sessionID)
+		// Keep session alive for conversation continuity.
+		// Set a no-op cancel so the reaper doesn't panic.
+		sess.cancel = func() {}
 	}()
 
-	ag := agent.NewAgent(w.llm, w.registry)
-	events := ag.RunStream(ctx, query)
+	events := sess.agent.RunStream(ctx, query)
 
 	for event := range events {
 		out := wsOutMessage{
@@ -124,6 +156,9 @@ func (w *wsClient) handleChat(sessionID, query string) {
 		}
 		w.writeJSON(out)
 	}
+
+	// Update lastUsed after query completes
+	sess.lastUsed = time.Now()
 }
 
 func (w *wsClient) handleStop(sessionID string) {
@@ -132,6 +167,24 @@ func (w *wsClient) handleStop(sessionID string) {
 			s.cancel()
 			log.Printf("[WS] Stopped session: %s", sessionID)
 		}
+	}
+}
+
+// sessionReaper periodically removes expired sessions.
+func (w *wsClient) sessionReaper() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		w.sessions.Range(func(key, val any) bool {
+			s := val.(*session)
+			if now.Sub(s.lastUsed) > sessionTTL {
+				s.cancel()
+				w.sessions.Delete(key)
+				log.Printf("[WS] Session expired: %s", key)
+			}
+			return true
+		})
 	}
 }
 
