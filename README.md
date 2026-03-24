@@ -23,6 +23,11 @@ neo-pkg-llm/
 ├── ws.go                # WebSocket 클라이언트 (Neo 연동)
 ├── config.go            # 설정 로딩 (.env, config.json, 환경변수)
 ├── config.json          # 런타임 설정 파일
+├── mage.go              # 빌드 진입점 (go run mage.go)
+├── magefile.go          # 빌드 타겟 (build / test / package)
+├── configs_api_test.go  # Configs API 단위 테스트
+├── configs/             # 사용자별 설정 파일 저장 디렉토리
+│   └── {user}.json
 ├── go.mod
 ├── agent/
 │   ├── agent.go         # 에이전틱 루프, 도구 호출 수정, 가드 로직
@@ -70,6 +75,9 @@ neo-pkg-llm/
 
 ```json
 {
+  "server": {
+    "port": "8884"
+  },
   "machbase": {
     "host": "127.0.0.1",
     "port": "5654",
@@ -98,15 +106,43 @@ neo-pkg-llm/
 ## 사용법
 
 ```bash
-
 # 의존성 설치
 go mod tidy
 
 # 빌드
-go build -o neo-pkg-llm.exe .
+go run mage.go build
+
+# 테스트
+go run mage.go test
+
+# 패키징 (크로스 컴파일)
+go run mage.go package linux-amd64
+go run mage.go package linux-arm64
+go run mage.go package darwin-amd64
+go run mage.go package darwin-arm64
+go run mage.go package windows-amd64   # → .zip 생성
+```
+
+#### 패키지 압축 구조
+
+Linux / macOS (`tar.gz`):
+```
+neo-pkg-llm-linux-amd64.tar.gz
+├── neo-pkg-llm
+└── configs/
+```
+
+Windows (`zip`):
+```
+neo-pkg-llm-windows-amd64.zip
+├── neo-pkg-llm.exe
+└── configs/
+```
+
+```bash
 
 # HTTP 서버 모드 (기본값)
-./neo-pkg-llm -mode server -port 8080
+./neo-pkg-llm -mode server
 
 # CLI 모드
 ./neo-pkg-llm -mode cli
@@ -141,6 +177,21 @@ go build -o neo-pkg-llm.exe .
 | `POST` | `/api/restart-llm` | LLM 클라이언트 재시작 |
 | `POST` | `/api/chat` | 채팅 (비스트리밍) |
 | `POST` | `/api/chat/stream` | 채팅 (SSE 스트리밍) |
+| `POST` | `/api/configs` | 사용자 설정 생성 (`configs/{machbase.user}.json`) |
+| `GET` | `/api/configs` | 저장된 사용자 설정 목록 조회 |
+| `GET` | `/api/configs/{name}` | 특정 사용자 설정 조회 |
+| `PUT` | `/api/configs/{name}` | 특정 사용자 설정 수정 |
+
+#### Configs API 공통 응답 구조
+
+```json
+{
+  "success": true,
+  "reason": "success",
+  "elapse": "83.2µs",
+  "data": {}
+}
+```
 
 ### WebSocket 프로토콜 (ws 모드)
 
