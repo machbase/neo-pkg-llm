@@ -141,8 +141,11 @@ neo-pkg-llm-windows-amd64.zip
 
 ```bash
 
-# HTTP 서버 모드 (기본값)
+# HTTP 서버 모드 (기본값, config.json 사용)
 ./neo-pkg-llm -mode server
+
+# 설정 파일 직접 지정
+./neo-pkg-llm -mode server -config configs/sys.json
 
 # CLI 모드
 ./neo-pkg-llm -mode cli
