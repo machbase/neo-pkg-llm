@@ -112,6 +112,8 @@ func (s *wsServer) readLoop(conn *websocket.Conn) {
 			go s.handleChat(conn, userID, msg.SessionID, msg.Provider, msg.Model, msg.Query)
 		case "stop":
 			s.handleStop(msg.SessionID, userID)
+		case "get_models":
+			s.handleGetModels(conn)
 		default:
 			log.Printf("[WSServer] Unknown type: %s", msg.Type)
 		}
@@ -233,6 +235,53 @@ func (s *wsServer) sessionReaper() {
 			return true
 		})
 	}
+}
+
+func (s *wsServer) handleGetModels(conn *websocket.Conn) {
+	type modelInfo struct {
+		Name    string `json:"name"`
+		ModelID string `json:"model_id,omitempty"`
+	}
+	type providerModels struct {
+		Provider string      `json:"provider"`
+		Models   []modelInfo `json:"models"`
+	}
+
+	var providers []providerModels
+
+	if len(s.cfg.Claude.Models) > 0 && s.cfg.Claude.APIKey != "" {
+		models := make([]modelInfo, len(s.cfg.Claude.Models))
+		for i, m := range s.cfg.Claude.Models {
+			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
+		}
+		providers = append(providers, providerModels{Provider: "claude", Models: models})
+	}
+	if len(s.cfg.ChatGPT.Models) > 0 && s.cfg.ChatGPT.APIKey != "" {
+		models := make([]modelInfo, len(s.cfg.ChatGPT.Models))
+		for i, m := range s.cfg.ChatGPT.Models {
+			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
+		}
+		providers = append(providers, providerModels{Provider: "chatgpt", Models: models})
+	}
+	if len(s.cfg.Gemini.Models) > 0 && s.cfg.Gemini.APIKey != "" {
+		models := make([]modelInfo, len(s.cfg.Gemini.Models))
+		for i, m := range s.cfg.Gemini.Models {
+			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
+		}
+		providers = append(providers, providerModels{Provider: "gemini", Models: models})
+	}
+	if len(s.cfg.Ollama.Models) > 0 {
+		models := make([]modelInfo, len(s.cfg.Ollama.Models))
+		for i, m := range s.cfg.Ollama.Models {
+			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
+		}
+		providers = append(providers, providerModels{Provider: "ollama", Models: models})
+	}
+
+	writeJSONTo(conn, map[string]any{
+		"type":      "models",
+		"providers": providers,
+	})
 }
 
 func writeJSONTo(conn *websocket.Conn, v any) {

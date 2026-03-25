@@ -60,7 +60,7 @@ type Config struct {
 func defaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port: "8884",
+			Port: "9100",
 		},
 		Machbase: MachbaseConfig{
 			Host: "127.0.0.1",
