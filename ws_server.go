@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -59,12 +62,24 @@ func newWSServer(mc *machbase.Client, cfg *Config) *wsServer {
 	}
 }
 
-// createLLM creates an LLM client for the given provider/model using the server config.
-func (s *wsServer) createLLM(provider, model string) (llm.LLMProvider, error) {
+// createLLM creates an LLM client. Loads user config from configs/{userID}.json first,
+// falls back to server config if not found.
+func (s *wsServer) createLLM(userID, provider, model string) (llm.LLMProvider, error) {
 	if s.createLLMFn != nil {
 		return s.createLLMFn(provider, model)
 	}
-	cfgCopy := *s.cfg
+
+	// 유저별 config 로드
+	cfg := s.cfg
+	userCfgPath := filepath.Join(configsDir, userID+".json")
+	if data, err := os.ReadFile(userCfgPath); err == nil {
+		var userCfg Config
+		if json.Unmarshal(data, &userCfg) == nil {
+			cfg = &userCfg
+		}
+	}
+
+	cfgCopy := *cfg
 	cfgCopy.Provider = provider
 	cfgCopy.Model = model
 	return newLLMSafe(&cfgCopy)
@@ -113,7 +128,7 @@ func (s *wsServer) readLoop(conn *websocket.Conn) {
 		case "stop":
 			s.handleStop(msg.SessionID, userID)
 		case "get_models":
-			s.handleGetModels(conn)
+			s.handleGetModels(conn, userID)
 		default:
 			log.Printf("[WSServer] Unknown type: %s", msg.Type)
 		}
@@ -123,11 +138,7 @@ func (s *wsServer) readLoop(conn *websocket.Conn) {
 func (s *wsServer) handleChat(conn *websocket.Conn, userID, sessionID, provider, model, query string) {
 	// --- provider/model required ---
 	if provider == "" || model == "" {
-		writeJSONTo(conn, wsOutMessage{
-			Type:      "error",
-			SessionID: sessionID,
-			Content:   "provider와 model은 필수입니다.",
-		})
+		emitErrorMsg(conn, sessionID, "provider와 model은 필수입니다.")
 		return
 	}
 
@@ -138,11 +149,7 @@ func (s *wsServer) handleChat(conn *websocket.Conn, userID, sessionID, provider,
 		// Verify session ownership
 		if sess.userID != userID {
 			log.Printf("[WSServer] Session %s: owner=%s, caller=%s → rejected", sessionID, sess.userID, userID)
-			writeJSONTo(conn, wsOutMessage{
-				Type:      "error",
-				SessionID: sessionID,
-				Content:   "세션 접근 권한이 없습니다.",
-			})
+			emitErrorMsg(conn, sessionID, "세션 접근 권한이 없습니다.")
 			return
 		}
 		// Cancel any running query
@@ -160,15 +167,11 @@ func (s *wsServer) handleChat(conn *websocket.Conn, userID, sessionID, provider,
 
 	if sess == nil {
 		// Create LLM client for requested provider/model
-		llmClient, err := s.createLLM(provider, model)
+		llmClient, err := s.createLLM(userID, provider, model)
 		if err != nil {
 			cancel()
 			log.Printf("[WSServer] LLM creation failed: %v", err)
-			writeJSONTo(conn, wsOutMessage{
-				Type:      "error",
-				SessionID: sessionID,
-				Content:   "LLM 생성 실패: " + err.Error(),
-			})
+			emitErrorMsg(conn, sessionID, "LLM 생성 실패: "+err.Error())
 			return
 		}
 
@@ -237,7 +240,7 @@ func (s *wsServer) sessionReaper() {
 	}
 }
 
-func (s *wsServer) handleGetModels(conn *websocket.Conn) {
+func (s *wsServer) handleGetModels(conn *websocket.Conn, userID string) {
 	type modelInfo struct {
 		Name    string `json:"name"`
 		ModelID string `json:"model_id,omitempty"`
@@ -247,32 +250,42 @@ func (s *wsServer) handleGetModels(conn *websocket.Conn) {
 		Models   []modelInfo `json:"models"`
 	}
 
+	// 유저별 config 로드 (configs/{userID}.json), 없으면 서버 config 사용
+	cfg := s.cfg
+	userCfgPath := filepath.Join(configsDir, userID+".json")
+	if data, err := os.ReadFile(userCfgPath); err == nil {
+		var userCfg Config
+		if json.Unmarshal(data, &userCfg) == nil {
+			cfg = &userCfg
+		}
+	}
+
 	var providers []providerModels
 
-	if len(s.cfg.Claude.Models) > 0 && s.cfg.Claude.APIKey != "" {
-		models := make([]modelInfo, len(s.cfg.Claude.Models))
-		for i, m := range s.cfg.Claude.Models {
+	if len(cfg.Claude.Models) > 0 && cfg.Claude.APIKey != "" {
+		models := make([]modelInfo, len(cfg.Claude.Models))
+		for i, m := range cfg.Claude.Models {
 			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
 		}
 		providers = append(providers, providerModels{Provider: "claude", Models: models})
 	}
-	if len(s.cfg.ChatGPT.Models) > 0 && s.cfg.ChatGPT.APIKey != "" {
-		models := make([]modelInfo, len(s.cfg.ChatGPT.Models))
-		for i, m := range s.cfg.ChatGPT.Models {
+	if len(cfg.ChatGPT.Models) > 0 && cfg.ChatGPT.APIKey != "" {
+		models := make([]modelInfo, len(cfg.ChatGPT.Models))
+		for i, m := range cfg.ChatGPT.Models {
 			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
 		}
 		providers = append(providers, providerModels{Provider: "chatgpt", Models: models})
 	}
-	if len(s.cfg.Gemini.Models) > 0 && s.cfg.Gemini.APIKey != "" {
-		models := make([]modelInfo, len(s.cfg.Gemini.Models))
-		for i, m := range s.cfg.Gemini.Models {
+	if len(cfg.Gemini.Models) > 0 && cfg.Gemini.APIKey != "" {
+		models := make([]modelInfo, len(cfg.Gemini.Models))
+		for i, m := range cfg.Gemini.Models {
 			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
 		}
 		providers = append(providers, providerModels{Provider: "gemini", Models: models})
 	}
-	if len(s.cfg.Ollama.Models) > 0 {
-		models := make([]modelInfo, len(s.cfg.Ollama.Models))
-		for i, m := range s.cfg.Ollama.Models {
+	if len(cfg.Ollama.Models) > 0 {
+		models := make([]modelInfo, len(cfg.Ollama.Models))
+		for i, m := range cfg.Ollama.Models {
 			models[i] = modelInfo{Name: m.Name, ModelID: m.ModelID}
 		}
 		providers = append(providers, providerModels{Provider: "ollama", Models: models})
@@ -288,6 +301,34 @@ func writeJSONTo(conn *websocket.Conn, v any) {
 	if err := conn.WriteJSON(v); err != nil {
 		log.Printf("[WSServer] Write error: %v", err)
 	}
+}
+
+// emitErrorMsg sends an error as a legacy msg format (answer_start → error block → answer_stop).
+func emitErrorMsg(conn *websocket.Conn, sessionID, errText string) {
+	emit := func(typ string, body *legacyBodyUnion) {
+		writeJSONTo(conn, legacyMessage{
+			Type:    "msg",
+			Session: sessionID,
+			Message: &legacyMsgBody{
+				Ver:  "1.0",
+				ID:   0,
+				Type: typ,
+				Body: body,
+			},
+		})
+	}
+	emit("answer_start", nil)
+	emit("stream_msg_start", nil)
+	emit("stream_block_start", nil)
+	emit("stream_block_delta", &legacyBodyUnion{
+		OfStreamBlockDelta: &legacyStreamBlockDelta{
+			ContentType: "error",
+			Text:        errText,
+		},
+	})
+	emit("stream_block_stop", nil)
+	emit("stream_msg_stop", nil)
+	emit("answer_stop", nil)
 }
 
 // --- Legacy format (compatible with Neo Chat UI eventbus protocol) ---
@@ -384,10 +425,6 @@ func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 			if inStreamBlock {
 				emit("stream_block_stop", nil)
 				inStreamBlock = false
-			}
-			// final content as last text block (if not already streamed)
-			if event.Content != "" {
-				emitTextBlock(event.Content)
 			}
 
 		case "error":
