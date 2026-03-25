@@ -15,10 +15,12 @@ func (r *Registry) registerSQLTools() {
 			Properties: map[string]ToolProperty{},
 		},
 		Fn: func(args map[string]any) (string, error) {
-			result, err := r.client.QuerySQL(
-				"SELECT NAME, TYPE, FLAG FROM M$SYS_TABLES WHERE NAME NOT LIKE 'M$%' AND NAME NOT LIKE '_$%' ORDER BY NAME",
-				"", "", "csv",
+			owner := strings.ToUpper(r.client.User)
+			sql := fmt.Sprintf(
+				"SELECT st.NAME FROM m$sys_tables AS st JOIN m$sys_users AS su ON st.USER_ID = su.USER_ID WHERE su.NAME = '%s' AND st.FLAG = 0 ORDER BY st.NAME",
+				owner,
 			)
+			result, err := r.client.QuerySQL(sql, "", "", "csv")
 			if err != nil {
 				return "", fmt.Errorf("list_tables failed: %w", err)
 			}
