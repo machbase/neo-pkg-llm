@@ -60,7 +60,7 @@ type Config struct {
 func defaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port: "",
+			Port: "9100",
 		},
 		Machbase: MachbaseConfig{
 			Host:     "127.0.0.1",
@@ -68,10 +68,32 @@ func defaultConfig() *Config {
 			User:     "sys",
 			Password: "manager",
 		},
-		Claude:  APIProviderConfig{Models: []ModelEntry{}},
-		ChatGPT: APIProviderConfig{Models: []ModelEntry{}},
-		Gemini:  APIProviderConfig{Models: []ModelEntry{}},
-		Ollama:  OllamaConfig{Models: []ModelEntry{}},
+		Claude: APIProviderConfig{
+			APIKey: "",
+			Models: []ModelEntry{
+				{Name: "sonnet", ModelID: "claude-sonnet-4-20250514"},
+				{Name: "haiku", ModelID: "claude-haiku-4-5-20251001"},
+			},
+		},
+		ChatGPT: APIProviderConfig{
+			APIKey: "",
+			Models: []ModelEntry{
+				{Name: "gpt-4o"},
+				{Name: "gpt-4o-mini"},
+			},
+		},
+		Gemini: APIProviderConfig{
+			APIKey: "",
+			Models: []ModelEntry{
+				{Name: "gemini-2.5-flash", ModelID: "gemini-2.5-flash-preview-04-17"},
+			},
+		},
+		Ollama: OllamaConfig{
+			BaseURL: "",
+			Models: []ModelEntry{
+				{Name: "qwen3:8b"},
+			},
+		},
 	}
 }
 
