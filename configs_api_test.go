@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // apiResp mirrors the standard configs API response envelope.
@@ -31,148 +30,10 @@ func decodeResp(t *testing.T, w *httptest.ResponseRecorder) apiResp {
 // setupConfigsHandler builds the /api/configs handlers backed by a temp directory.
 func setupConfigsHandler(t *testing.T) (http.Handler, string) {
 	t.Helper()
-
 	dir := t.TempDir()
 	configsDir := filepath.Join(dir, "configs")
-
-	type configsResp struct {
-		Success bool   `json:"success"`
-		Reason  string `json:"reason"`
-		Elapse  string `json:"elapse"`
-		Data    any    `json:"data"`
-	}
-	write := func(w http.ResponseWriter, status int, success bool, reason string, elapsed time.Duration, data any) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(configsResp{
-			Success: success,
-			Reason:  reason,
-			Elapse:  elapsed.String(),
-			Data:    data,
-		})
-	}
-
 	mux := http.NewServeMux()
-
-	mux.HandleFunc("/api/configs", func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		switch r.Method {
-		case http.MethodPost:
-			var body Config
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				write(w, http.StatusBadRequest, false, "invalid JSON: "+err.Error(), time.Since(start), nil)
-				return
-			}
-			switch {
-			case body.Server.Port == "":
-				write(w, http.StatusBadRequest, false, "server.port is required", time.Since(start), nil)
-				return
-			case body.Machbase.Host == "":
-				write(w, http.StatusBadRequest, false, "machbase.host is required", time.Since(start), nil)
-				return
-			case body.Machbase.Port == "":
-				write(w, http.StatusBadRequest, false, "machbase.port is required", time.Since(start), nil)
-				return
-			case body.Machbase.User == "":
-				write(w, http.StatusBadRequest, false, "machbase.user is required", time.Since(start), nil)
-				return
-			case body.Machbase.Password == "":
-				write(w, http.StatusBadRequest, false, "machbase.password is required", time.Since(start), nil)
-				return
-			}
-			userName := body.Machbase.User
-			if strings.ContainsAny(userName, "/\\..") {
-				write(w, http.StatusBadRequest, false, "machbase.user contains invalid characters", time.Since(start), nil)
-				return
-			}
-			if err := os.MkdirAll(configsDir, 0755); err != nil {
-				write(w, http.StatusInternalServerError, false, "failed to create configs dir", time.Since(start), nil)
-				return
-			}
-			savePath := filepath.Join(configsDir, userName+".json")
-			data, _ := json.MarshalIndent(body, "", "  ")
-			if err := os.WriteFile(savePath, data, 0644); err != nil {
-				write(w, http.StatusInternalServerError, false, "failed to save config", time.Since(start), nil)
-				return
-			}
-			write(w, http.StatusOK, true, "success", time.Since(start), map[string]string{"name": userName})
-
-		case http.MethodGet:
-			names := []string{}
-			entries, err := os.ReadDir(configsDir)
-			if err == nil {
-				for _, e := range entries {
-					if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-						names = append(names, strings.TrimSuffix(e.Name(), ".json"))
-					}
-				}
-			}
-			write(w, http.StatusOK, true, "success", time.Since(start), map[string]any{"configs": names})
-
-		default:
-			write(w, http.StatusMethodNotAllowed, false, "GET or POST required", time.Since(start), nil)
-		}
-	})
-
-	mux.HandleFunc("/api/configs/", func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		name := strings.TrimPrefix(r.URL.Path, "/api/configs/")
-		if name == "" || strings.ContainsAny(name, "/\\.") {
-			write(w, http.StatusBadRequest, false, "invalid name", time.Since(start), nil)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			raw, err := os.ReadFile(filepath.Join(configsDir, name+".json"))
-			if err != nil {
-				write(w, http.StatusNotFound, false, "not found", time.Since(start), nil)
-				return
-			}
-			var cfg Config
-			json.Unmarshal(raw, &cfg)
-			write(w, http.StatusOK, true, "success", time.Since(start), cfg)
-
-		case http.MethodPut:
-			savePath := filepath.Join(configsDir, name+".json")
-			if _, err := os.Stat(savePath); err != nil {
-				write(w, http.StatusNotFound, false, "not found", time.Since(start), nil)
-				return
-			}
-			var body Config
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				write(w, http.StatusBadRequest, false, "invalid JSON: "+err.Error(), time.Since(start), nil)
-				return
-			}
-			switch {
-			case body.Server.Port == "":
-				write(w, http.StatusBadRequest, false, "server.port is required", time.Since(start), nil)
-				return
-			case body.Machbase.Host == "":
-				write(w, http.StatusBadRequest, false, "machbase.host is required", time.Since(start), nil)
-				return
-			case body.Machbase.Port == "":
-				write(w, http.StatusBadRequest, false, "machbase.port is required", time.Since(start), nil)
-				return
-			case body.Machbase.User == "":
-				write(w, http.StatusBadRequest, false, "machbase.user is required", time.Since(start), nil)
-				return
-			case body.Machbase.Password == "":
-				write(w, http.StatusBadRequest, false, "machbase.password is required", time.Since(start), nil)
-				return
-			}
-			data, _ := json.MarshalIndent(body, "", "  ")
-			if err := os.WriteFile(savePath, data, 0644); err != nil {
-				write(w, http.StatusInternalServerError, false, "failed to save config", time.Since(start), nil)
-				return
-			}
-			write(w, http.StatusOK, true, "success", time.Since(start), map[string]string{"name": name})
-
-		default:
-			write(w, http.StatusMethodNotAllowed, false, "GET or PUT required", time.Since(start), nil)
-		}
-	})
-
+	registerConfigsHandlers(mux, configsDir)
 	return mux, configsDir
 }
 
@@ -498,5 +359,119 @@ func TestPutConfigByName_RequiredFields(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("[%s] expected 400, got %d", tc.desc, w.Code)
 		}
+	}
+}
+
+func TestPutConfigByName_RenameOnUserChange(t *testing.T) {
+	handler, configsDir := setupConfigsHandler(t)
+
+	// alice로 생성
+	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	// machbase.user를 bob으로 변경
+	updated := `{"server":{"port":"8884"},"machbase":{"host":"192.168.1.238","port":"5654","user":"bob","password":"manager"}}`
+	req = httptest.NewRequest(http.MethodPut, "/api/configs/alice", strings.NewReader(updated))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	r := decodeResp(t, w)
+	var data map[string]string
+	json.Unmarshal(r.Data, &data)
+	if data["name"] != "bob" {
+		t.Errorf("expected data.name=bob, got %q", data["name"])
+	}
+
+	// bob.json 생성됐는지 확인
+	if _, err := os.Stat(filepath.Join(configsDir, "bob.json")); err != nil {
+		t.Error("bob.json should exist after rename")
+	}
+	// alice.json 삭제됐는지 확인
+	if _, err := os.Stat(filepath.Join(configsDir, "alice.json")); err == nil {
+		t.Error("alice.json should be deleted after rename")
+	}
+}
+
+// --- DELETE /api/configs/{name} ---
+
+func TestDeleteConfigByName_Success(t *testing.T) {
+	handler, configsDir := setupConfigsHandler(t)
+
+	// 먼저 생성
+	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	// 삭제
+	req = httptest.NewRequest(http.MethodDelete, "/api/configs/alice", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	r := decodeResp(t, w)
+	if !r.Success {
+		t.Errorf("expected success=true, reason=%q", r.Reason)
+	}
+	var data map[string]string
+	json.Unmarshal(r.Data, &data)
+	if data["name"] != "alice" {
+		t.Errorf("expected data.name=alice, got %q", data["name"])
+	}
+
+	// 파일이 실제로 삭제됐는지 확인
+	if _, err := os.Stat(filepath.Join(configsDir, "alice.json")); err == nil {
+		t.Error("alice.json should be deleted")
+	}
+}
+
+func TestDeleteConfigByName_NotExist(t *testing.T) {
+	handler, _ := setupConfigsHandler(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/configs/nobody", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	r := decodeResp(t, w)
+	if r.Success {
+		t.Error("expected success=false")
+	}
+	if r.Reason != "config 'nobody' does not exist" {
+		t.Errorf("unexpected reason: %q", r.Reason)
+	}
+}
+
+func TestDeleteConfigByName_NotInListAfterDelete(t *testing.T) {
+	handler, _ := setupConfigsHandler(t)
+
+	// alice, bob 생성
+	for _, user := range []string{"alice", "bob"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody(user)))
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	// alice 삭제
+	req := httptest.NewRequest(http.MethodDelete, "/api/configs/alice", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	// 목록 확인
+	req = httptest.NewRequest(http.MethodGet, "/api/configs", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	r := decodeResp(t, w)
+	var data map[string][]string
+	json.Unmarshal(r.Data, &data)
+	if len(data["configs"]) != 1 {
+		t.Errorf("expected 1 config after delete, got %d: %v", len(data["configs"]), data["configs"])
+	}
+	if data["configs"][0] != "bob" {
+		t.Errorf("expected bob to remain, got %q", data["configs"][0])
 	}
 }
