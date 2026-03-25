@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"neo-pkg-llm/machbase"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -56,7 +55,6 @@ func (r *Registry) registerTQLTools() {
 			if tql == "" {
 				return "", fmt.Errorf("tql_script is required")
 			}
-			// Basic validation: try executing the TQL
 			result, err := r.client.ExecuteTQL(tql, 30*time.Second)
 			if err != nil {
 				return fmt.Sprintf("VALIDATION FAILED: %v", err), nil
@@ -88,8 +86,7 @@ func (r *Registry) registerTQLTools() {
 
 			// Ensure parent folder exists
 			if idx := strings.Index(filename, "/"); idx > 0 {
-				folder := filename[:idx]
-				r.client.CreateFolder(folder)
+				r.client.CreateFolder(filename[:idx])
 			}
 
 			isTQL := strings.HasSuffix(strings.ToLower(filename), ".tql")
@@ -104,7 +101,6 @@ func (r *Registry) registerTQLTools() {
 				if trimmed == "" {
 					return "TQL validation failed: execution returned empty result (not saved)", nil
 				}
-				// Check for error in response
 				if strings.Contains(strings.ToLower(trimmed), "error") {
 					var resp map[string]any
 					if json.Unmarshal([]byte(trimmed), &resp) == nil {
@@ -115,23 +111,10 @@ func (r *Registry) registerTQLTools() {
 				}
 			}
 
-			// Save the file via Web API (always /web/api/files/)
-			savePath := "/web/api/files/" + machbase.EscapePath(filename)
-
-			respData, err := r.client.WebPostRaw(savePath, "text/plain", []byte(tqlContent))
-			if err != nil {
+			// Save the file
+			if err := r.client.WriteFile(filename, []byte(tqlContent)); err != nil {
 				return fmt.Sprintf("File save failed: %v", err), nil
 			}
-
-			// Check API response for success
-			var resp map[string]any
-			if json.Unmarshal(respData, &resp) == nil {
-				if success, ok := resp["success"].(bool); ok && !success {
-					reason, _ := resp["reason"].(string)
-					return fmt.Sprintf("File save failed: %s", reason), nil
-				}
-			}
-
 			return fmt.Sprintf("File saved successfully: %s", filename), nil
 		},
 	})

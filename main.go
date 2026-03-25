@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -109,7 +108,7 @@ func newLLM(cfg *Config) llm.LLMProvider {
 // --- MCP Server Mode (stdio JSON-RPC) ---
 
 func runMCP(cfg *Config) {
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
 	registry := tools.NewRegistry(mc)
 
 	server := mcp.NewServer(registry)
@@ -124,7 +123,7 @@ func runWS(cfg *Config, neoURL string) {
 	if neoURL == "" {
 		log.Fatal("--neo-ws-url is required for ws mode")
 	}
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
 	registry := tools.NewRegistry(mc)
 	llmClient := newLLM(cfg)
 
@@ -138,7 +137,7 @@ func runWS(cfg *Config, neoURL string) {
 // --- CLI Mode ---
 
 func runCLI(cfg *Config) {
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
 	registry := tools.NewRegistry(mc)
 	llmClient := newLLM(cfg)
 
@@ -180,7 +179,7 @@ func runServer(cfg *Config, port string) {
 	}
 
 	var mu sync.RWMutex
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
 	registry := tools.NewRegistry(mc)
 	llmClient := newLLM(cfg)
 
@@ -195,30 +194,6 @@ func runServer(cfg *Config, port string) {
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
-
-	// --- Login API (proxy to Machbase Neo) ---
-	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "POST required", http.StatusMethodNotAllowed)
-			return
-		}
-		// Forward login request to Machbase Neo
-		resp, err := http.Post(
-			cfg.MachbaseURL()+"/web/api/login",
-			"application/json",
-			r.Body,
-		)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Machbase login failed: " + err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
 	})
 
 	// --- Settings API ---
@@ -266,7 +241,7 @@ func runServer(cfg *Config, port string) {
 		}
 
 		mu.Lock()
-		mc = machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
+		mc = machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
 		registry = tools.NewRegistry(mc)
 		llmClient = newClient
 		mu.Unlock()
@@ -368,7 +343,6 @@ func runServer(cfg *Config, port string) {
 	log.Printf("Machbase: %s | Provider: %s | Model: %s", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
 	log.Printf("Tools: %d loaded", len(registry.ToolNames()))
 	log.Printf("Endpoints:")
-	log.Printf("  POST /api/login           — Login (proxy to Machbase)")
 	log.Printf("  GET  /settings            — Settings page")
 	log.Printf("  GET  /api/settings        — Get config")
 	log.Printf("  POST /api/settings        — Save config")

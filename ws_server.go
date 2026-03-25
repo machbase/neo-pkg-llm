@@ -70,39 +70,26 @@ func (s *wsServer) createLLM(provider, model string) (llm.LLMProvider, error) {
 	return newLLMSafe(&cfgCopy)
 }
 
-// ServeHTTP handles the WebSocket upgrade with JWT authentication.
+// ServeHTTP handles the WebSocket upgrade.
 func (s *wsServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		http.Error(w, `{"error":"token required"}`, http.StatusUnauthorized)
-		return
-	}
-
-	userID, err := s.mc.VerifyToken(token)
-	if err != nil {
-		log.Printf("[WSServer] Auth failed: %v", err)
-		http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
-		return
-	}
-
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[WSServer] Upgrade failed: %v", err)
 		return
 	}
 
-	log.Printf("[WSServer] Connected: user=%s", userID)
-	s.readLoop(conn, userID)
+	log.Printf("[WSServer] Connected")
+	s.readLoop(conn)
 }
 
 // readLoop reads messages from a connected Chat UI client.
-func (s *wsServer) readLoop(conn *websocket.Conn, userID string) {
+func (s *wsServer) readLoop(conn *websocket.Conn) {
 	defer conn.Close()
 
 	for {
 		var msg wsInMessage
 		if err := conn.ReadJSON(&msg); err != nil {
-			log.Printf("[WSServer] Read error (user=%s): %v", userID, err)
+			log.Printf("[WSServer] Read error: %v", err)
 			s.sessions.Range(func(key, val any) bool {
 				sess := val.(*wsSession)
 				sess.writeMu.Lock()
@@ -113,6 +100,11 @@ func (s *wsServer) readLoop(conn *websocket.Conn, userID string) {
 				return true
 			})
 			return
+		}
+
+		userID := msg.UserID
+		if userID == "" {
+			userID = s.mc.User // fallback to config user
 		}
 
 		switch msg.Type {

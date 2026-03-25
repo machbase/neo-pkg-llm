@@ -231,36 +231,30 @@ func (r *Registry) registerDashboardTools() {
 // --- Dashboard implementations ---
 
 func (r *Registry) listDashboards(args map[string]any) (string, error) {
-	data, err := r.client.WebGet("/web/api/files/")
+	var dashboards []string
+	entries, err := r.client.ListDir("/")
 	if err != nil {
 		return "", err
 	}
-	var dashboards []string
-	collectDSH(data, &dashboards)
+	for _, e := range entries {
+		if e["type"] == "dir" {
+			subEntries, _ := r.client.ListDir(e["name"])
+			for _, se := range subEntries {
+				if strings.HasSuffix(se["name"], ".dsh") {
+					dashboards = append(dashboards, e["name"]+"/"+se["name"])
+				}
+			}
+		}
+		if strings.HasSuffix(e["name"], ".dsh") {
+			dashboards = append(dashboards, e["name"])
+		}
+	}
 	if len(dashboards) == 0 {
 		return "No dashboards found", nil
 	}
 	return "Dashboards:\n" + strings.Join(dashboards, "\n"), nil
 }
 
-func collectDSH(data []byte, results *[]string) {
-	var resp map[string]any
-	if json.Unmarshal(data, &resp) != nil {
-		return
-	}
-	if d, ok := resp["data"].(map[string]any); ok {
-		if children, ok := d["children"].([]any); ok {
-			for _, c := range children {
-				if child, ok := c.(map[string]any); ok {
-					name, _ := child["name"].(string)
-					if strings.HasSuffix(name, ".dsh") {
-						*results = append(*results, name)
-					}
-				}
-			}
-		}
-	}
-}
 
 func (r *Registry) getDashboard(args map[string]any) (string, error) {
 	filename := fixDashFilename(argStr(args, "filename", ""))
@@ -506,8 +500,8 @@ func (r *Registry) deleteDashboard(args map[string]any) (string, error) {
 	if filename == "" {
 		return "", fmt.Errorf("filename is required")
 	}
-	_, err := r.client.WebDelete("/web/api/files/" + machbase.EscapePath(filename))
-	if err != nil {
+
+	if err := r.client.DeleteFile(filename); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Dashboard deleted: %s", filename), nil
@@ -590,18 +584,17 @@ func fixDashFilename(filename string) string {
 }
 
 func ensureParentFolder(client *machbase.Client, filename string) {
-	if idx := strings.Index(filename, "/"); idx > 0 {
+	if idx := strings.LastIndex(filename, "/"); idx > 0 {
 		client.CreateFolder(filename[:idx])
 	}
 }
 
-// loadDashFile loads a .dsh file via API and returns the raw file content.
+// loadDashFile loads a .dsh file and returns the raw file content.
 func (r *Registry) loadDashFile(filename string) (map[string]any, error) {
-	data, err := r.client.WebGet("/web/api/files/" + machbase.EscapePath(filename))
+	data, err := r.client.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load dashboard: %w", err)
 	}
-
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse dashboard: %w", err)
@@ -612,16 +605,8 @@ func (r *Registry) loadDashFile(filename string) (map[string]any, error) {
 // saveDashFile saves the complete .dsh file content.
 func (r *Registry) saveDashFile(filename string, content map[string]any) (string, error) {
 	dashData, _ := json.Marshal(content)
-	respData, err := r.client.WebPostRaw(
-		"/web/api/files/"+machbase.EscapePath(filename),
-		"application/json",
-		dashData,
-	)
-	if err != nil {
+	if err := r.client.WriteFile(filename, dashData); err != nil {
 		return "", fmt.Errorf("save dashboard failed: %w", err)
-	}
-	if msg := checkAPIResponse(respData); msg != "" {
-		return "", fmt.Errorf("save dashboard failed: %s", msg)
 	}
 	return fmt.Sprintf("Dashboard saved: %s", filename), nil
 }
@@ -647,18 +632,6 @@ func setDashPanels(raw map[string]any, panels []any) {
 		panels = []any{}
 	}
 	dash["panels"] = panels
-}
-
-// checkAPIResponse checks the Machbase API response for failure.
-func checkAPIResponse(data []byte) string {
-	var resp map[string]any
-	if json.Unmarshal(data, &resp) == nil {
-		if success, ok := resp["success"].(bool); ok && !success {
-			reason, _ := resp["reason"].(string)
-			return reason
-		}
-	}
-	return ""
 }
 
 // calculateNextPosition finds the next auto-layout position (matching Python _calculate_next_position)

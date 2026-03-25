@@ -1,8 +1,6 @@
 package tools
 
 import (
-	"neo-pkg-llm/machbase"
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -48,26 +46,14 @@ func (r *Registry) registerFileTools() {
 		},
 		Fn: func(args map[string]any) (string, error) {
 			dirPath := argStr(args, "path", "/")
-			data, err := r.client.WebGet("/web/api/files/" + machbase.EscapePath(dirPath))
+			entries, err := r.client.ListDir(dirPath)
 			if err != nil {
 				return "", fmt.Errorf("list_files failed: %w", err)
 			}
-
-			var resp map[string]any
-			json.Unmarshal(data, &resp)
-
 			var result strings.Builder
 			result.WriteString(fmt.Sprintf("Files in %s:\n", dirPath))
-
-			if d, ok := resp["data"].(map[string]any); ok {
-				if children, ok := d["children"].([]any); ok {
-					for _, c := range children {
-						child, _ := c.(map[string]any)
-						name, _ := child["name"].(string)
-						cType, _ := child["type"].(string)
-						result.WriteString(fmt.Sprintf("  [%s] %s\n", cType, name))
-					}
-				}
+			for _, e := range entries {
+				result.WriteString(fmt.Sprintf("  [%s] %s\n", e["type"], e["name"]))
 			}
 			return result.String(), nil
 		},
@@ -88,8 +74,7 @@ func (r *Registry) registerFileTools() {
 			if filename == "" {
 				return "", fmt.Errorf("filename is required")
 			}
-			_, err := r.client.WebDelete("/web/api/files/" + machbase.EscapePath(filename))
-			if err != nil {
+			if err := r.client.DeleteFile(filename); err != nil {
 				return "", fmt.Errorf("delete_file failed: %w", err)
 			}
 			return fmt.Sprintf("Deleted: %s", filename), nil

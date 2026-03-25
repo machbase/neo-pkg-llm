@@ -32,17 +32,15 @@ func (r *Registry) registerUtilTools() {
 		Parameters: ToolParameters{
 			Type: "object",
 			Properties: map[string]ToolProperty{
-				"host":     {Type: "string", Description: "Machbase Neo host (e.g., '192.168.1.100')"},
-				"port":     {Type: "string", Description: "Machbase Neo port (e.g., '5654')"},
-				"user":     {Type: "string", Description: "Login user name"},
-				"password": {Type: "string", Description: "Login password"},
+				"host": {Type: "string", Description: "Machbase Neo host (e.g., '192.168.1.100')"},
+				"port": {Type: "string", Description: "Machbase Neo port (e.g., '5654')"},
+				"user": {Type: "string", Description: "User name"},
 			},
 		},
 		Fn: func(args map[string]any) (string, error) {
 			host := argStr(args, "host", "")
 			port := argStr(args, "port", "")
 			user := argStr(args, "user", "")
-			password := argStr(args, "password", "")
 
 			var baseURL string
 			if host != "" {
@@ -50,12 +48,9 @@ func (r *Registry) registerUtilTools() {
 					port = "5654"
 				}
 				baseURL = "http://" + host + ":" + port
-			} else if port != "" {
-				// port만 바뀐 경우: 기존 host 유지
-				baseURL = ""
 			}
 
-			r.client.UpdateConnection(baseURL, user, password)
+			r.client.UpdateConnection(baseURL, user)
 
 			// 연결 확인
 			result, err := r.client.QuerySQL("SELECT COUNT(*) FROM M$SYS_TABLES", "", "", "csv")

@@ -17,6 +17,7 @@ import (
 
 type wsInMessage struct {
 	Type      string `json:"type"`
+	UserID    string `json:"user_id,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
 	Provider  string `json:"provider,omitempty"`
 	Model     string `json:"model,omitempty"`

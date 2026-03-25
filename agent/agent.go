@@ -1115,7 +1115,7 @@ var knownParams = map[string]bool{
 	"format": true, "timeformat": true, "timezone": true,
 	"timeout_seconds": true, "limit": true,
 	"section_filter": true, "language": true,
-	"host": true, "port": true, "user": true, "password": true,
+	"host": true, "port": true, "user": true,
 	"time_start": true, "time_end": true, "refresh": true,
 	"charts": true, "chart_title": true, "chart_type": true,
 	"table": true, "tag": true, "column": true, "color": true,
