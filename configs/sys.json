@@ -1,45 +1,45 @@
 {
-  "server": {
-    "port": "..."
-  },
-  "machbase": {
-    "host": "127.0.0.1",
-    "port": "5654",
-    "user": "sys",
-    "password": "manager"
-  },
-  "claude": {
-    "api_key": "sk-...",
-    "models": [
-      {
-        "name": "haiku",
-        "model_id": "claude-haiku-4-5-20251001"
-      }
-    ]
-  },
-  "chatgpt": {
-    "api_key": "sk-...",
-    "models": [
-      {
-        "name": "gpt-4o-mini"
-      }
-    ]
-  },
-  "gemini": {
-    "api_key": "AIzaS...",
-    "models": [
-      {
-        "name": "gemini-3.1-flash",
-        "model_id": "gemini-3.1-flash-lite-preview"
-      }
-    ]
-  },
-  "ollama": {
-    "base_url": "",
-    "models": [
-      {
-        "name": "qwen3:8b"
-      }
-    ]
-  }
+    "server": {
+        "port": "8884"
+    },
+    "machbase": {
+        "host": "192.168.1.238",
+        "port": "5654",
+        "user": "sys",
+        "password": "manager"
+    },
+    "claude": {
+        "api_key": "sk...",
+        "models": [
+            {
+                "name": "haiku",
+                "model_id": "claude-haiku-4-5-20251001"
+            }
+        ]
+    },
+    "chatgpt": {
+        "api_key": "sk-...",
+        "models": [
+            {
+                "name": "gpt-4o-mini"
+            }
+        ]
+    },
+    "gemini": {
+        "api_key": "AIz...",
+        "models": [
+            {
+                "name": "gemini-3.1-flash",
+                "model_id": "gemini-3.1-flash-lite-preview"
+            }
+        ]
+    },
+    "ollama": {
+        "base_url": "",
+        "models": [
+            {
+                "name": "qwen3:8b"
+            }
+        ]
+    }
 }
