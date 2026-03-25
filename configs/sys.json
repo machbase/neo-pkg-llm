@@ -1,0 +1,48 @@
+{
+  "server": {
+    "port": "8884"
+  },
+  "machbase": {
+    "host": "192.168.1.238",
+    "port": "5654",
+    "user": "sys",
+    "password": "manager"
+  },
+  "claude": {
+    "api_key": "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",
+    "models": [
+      {
+        "name": "haiku",
+        "model_id": "claude-haiku-4-5-20251001"
+      }
+    ]
+  },
+  "chatgpt": {
+    "api_key": "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",
+    "models": [
+      {
+        "name": "gpt-4o-mini"
+      }
+    ]
+  },
+  "gemini": {
+    "api_key": "AIzaSyBl3CGpix9UC2c1Mriz748qTBfUM241n5k",
+    "models": [
+      {
+        "name": "gemini-3.1-flash",
+        "model_id": "gemini-3.1-flash-lite-preview"
+      }
+    ]
+  },
+  "ollama": {
+    "base_url": "",
+    "models": [
+      {
+        "name": "qwen3:8b"
+      },
+      { 
+        "name": "llama3.1:8b"
+      }
+    ]
+  }
+}
