@@ -53,6 +53,9 @@ func registerConfigsHandlers(mux *http.ServeMux, dir string) {
 			case body.Machbase.User == "":
 				writeConfigsResp(w, http.StatusBadRequest, false, "machbase.user is required", time.Since(start), nil)
 				return
+			case body.Machbase.WorkDir == "":
+				writeConfigsResp(w, http.StatusBadRequest, false, "machbase.work_dir is required", time.Since(start), nil)
+				return
 			}
 			userName := body.Machbase.User
 			if strings.ContainsAny(userName, "/\\..") {
@@ -134,6 +137,9 @@ func registerConfigsHandlers(mux *http.ServeMux, dir string) {
 				return
 			case body.Machbase.User == "":
 				writeConfigsResp(w, http.StatusBadRequest, false, "machbase.user is required", time.Since(start), nil)
+				return
+			case body.Machbase.WorkDir == "":
+				writeConfigsResp(w, http.StatusBadRequest, false, "machbase.work_dir is required", time.Since(start), nil)
 				return
 			}
 			newName := body.Machbase.User

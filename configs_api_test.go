@@ -104,6 +104,10 @@ func TestPostConfigs_RequiredFields(t *testing.T) {
 			"missing machbase.user",
 			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"","work_dir":"/tmp/neo"}}`,
 		},
+		{
+			"missing machbase.work_dir",
+			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"u","work_dir":""}}`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -345,6 +349,7 @@ func TestPutConfigByName_RequiredFields(t *testing.T) {
 		{"missing server.port", `{"server":{},"machbase":{"host":"h","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`},
 		{"missing machbase.host", `{"server":{"port":"8884"},"machbase":{"host":"","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`},
 		{"missing machbase.user", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"","work_dir":"/tmp/neo"}}`},
+		{"missing machbase.work_dir", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"alice","work_dir":""}}`},
 	}
 
 	for _, tc := range cases {
