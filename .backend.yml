@@ -1,11 +1,11 @@
 start:
-  - run: ./scripts/start.sh
+  - run: ./.backend/start.sh
   - on: windows
-    run: scripts\start.cmd
+    run: .backend\start.cmd
 stop:
-  - run: ./scripts/stop.sh
+  - run: ./.backend/stop.sh
   - on: windows
-    run: scripts\stop.cmd
+    run: .backend\stop.cmd
 
 auto_start: true
 
