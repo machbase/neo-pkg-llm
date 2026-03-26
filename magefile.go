@@ -144,9 +144,11 @@ func addFileToTar(tw *tar.Writer, path string) error {
 }
 
 
-// Dp packages the binary for the current platform and deploys it via scp.
+// Dp packages the binary and deploys it via scp.
 // Reads HOST, USER, PATH from .env file.
-func Dp() error {
+// Usage: go run mage.go dp [platform]  (e.g. dp linux-amd64)
+// If platform is omitted, the current platform is used.
+func Dp(platform string) error {
 	env, err := loadEnvFile(".env")
 	if err != nil {
 		return fmt.Errorf("failed to load .env: %w", err)
@@ -158,23 +160,17 @@ func Dp() error {
 		return fmt.Errorf(".env must contain HOST, USER, and PATH")
 	}
 
-	goos := os.Getenv("GOOS")
-	if goos == "" {
-		out, err := exec.Command("go", "env", "GOOS").Output()
+	if platform == "" {
+		goos, err := exec.Command("go", "env", "GOOS").Output()
 		if err != nil {
 			return fmt.Errorf("failed to get GOOS: %w", err)
 		}
-		goos = strings.TrimSpace(string(out))
-	}
-	goarch := os.Getenv("GOARCH")
-	if goarch == "" {
-		out, err := exec.Command("go", "env", "GOARCH").Output()
+		goarch, err := exec.Command("go", "env", "GOARCH").Output()
 		if err != nil {
 			return fmt.Errorf("failed to get GOARCH: %w", err)
 		}
-		goarch = strings.TrimSpace(string(out))
+		platform = strings.TrimSpace(string(goos)) + "-" + strings.TrimSpace(string(goarch))
 	}
-	platform := goos + "-" + goarch
 
 	if err := Package(platform); err != nil {
 		return err
