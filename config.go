@@ -3,10 +3,11 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"neo-pkg-llm/logger"
 )
 
 // --- JSON config structures ---
@@ -108,7 +109,7 @@ func LoadConfig(path string) *Config {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		// config.json not found → create with defaults
-		log.Printf("Config file not found (%s), creating with defaults", path)
+		logger.Infof("Config file not found (%s), creating with defaults", path)
 		os.MkdirAll(filepath.Dir(path), 0755)
 		cfg.Save()
 		cfg.applyEnvOverrides()
@@ -116,7 +117,7 @@ func LoadConfig(path string) *Config {
 	}
 
 	if err := json.Unmarshal(data, cfg); err != nil {
-		log.Printf("Config parse error: %v, using defaults", err)
+		logger.Infof("Config parse error: %v, using defaults", err)
 		cfg = defaultConfig()
 		cfg.configPath = path
 	}

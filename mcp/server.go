@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"sync"
 
+	"neo-pkg-llm/logger"
 	"neo-pkg-llm/tools"
 )
 
@@ -89,9 +89,9 @@ func NewServer(registry *tools.Registry) *Server {
 
 // Run starts the MCP server reading from stdin and writing to stdout.
 func (s *Server) Run() error {
-	log.SetOutput(os.Stderr)
-	log.Println("[MCP] Machbase Neo MCP Server (Go) starting...")
-	log.Printf("[MCP] Tools: %d registered", len(s.registry.ToolNames()))
+	// logger already writes to stdout + file
+	logger.Infof("[MCP] Machbase Neo MCP Server (Go) starting...")
+	logger.Infof("[MCP] Tools: %d registered", len(s.registry.ToolNames()))
 
 	reader := bufio.NewReader(os.Stdin)
 	writer := os.Stdout
@@ -100,7 +100,7 @@ func (s *Server) Run() error {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
-				log.Println("[MCP] stdin closed, exiting")
+				logger.Infof("[MCP] stdin closed, exiting")
 				return nil
 			}
 			return fmt.Errorf("read error: %w", err)
@@ -108,7 +108,7 @@ func (s *Server) Run() error {
 
 		var req jsonrpcRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			log.Printf("[MCP] invalid JSON: %v", err)
+			logger.Infof("[MCP] invalid JSON: %v", err)
 			continue
 		}
 
@@ -130,7 +130,7 @@ func (s *Server) handleRequest(req *jsonrpcRequest) *jsonrpcResponse {
 	case "initialize":
 		return s.handleInitialize(req)
 	case "initialized":
-		log.Println("[MCP] Client initialized")
+		logger.Infof("[MCP] Client initialized")
 		return nil // notification
 	case "tools/list":
 		return s.handleToolsList(req)
@@ -139,7 +139,7 @@ func (s *Server) handleRequest(req *jsonrpcRequest) *jsonrpcResponse {
 	case "ping":
 		return &jsonrpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}}
 	default:
-		log.Printf("[MCP] Unknown method: %s", req.Method)
+		logger.Infof("[MCP] Unknown method: %s", req.Method)
 		return &jsonrpcResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
@@ -149,7 +149,7 @@ func (s *Server) handleRequest(req *jsonrpcRequest) *jsonrpcResponse {
 }
 
 func (s *Server) handleInitialize(req *jsonrpcRequest) *jsonrpcResponse {
-	log.Println("[MCP] Initialize request")
+	logger.Infof("[MCP] Initialize request")
 	return &jsonrpcResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -167,7 +167,7 @@ func (s *Server) handleInitialize(req *jsonrpcRequest) *jsonrpcResponse {
 }
 
 func (s *Server) handleToolsList(req *jsonrpcRequest) *jsonrpcResponse {
-	log.Println("[MCP] tools/list request")
+	logger.Infof("[MCP] tools/list request")
 	var toolDefs []mcpToolDef
 	for _, name := range s.registry.ToolNames() {
 		t := s.registry.Get(name)
@@ -194,7 +194,7 @@ func (s *Server) handleToolsCall(req *jsonrpcRequest) *jsonrpcResponse {
 		}
 	}
 
-	log.Printf("[MCP] tools/call: %s", params.Name)
+	logger.Infof("[MCP] tools/call: %s", params.Name)
 
 	result, err := s.registry.ExecuteMap(params.Name, params.Arguments)
 	if err != nil {

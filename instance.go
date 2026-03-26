@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 
 	"neo-pkg-llm/agent"
 	"neo-pkg-llm/llm"
+	"neo-pkg-llm/logger"
 	"neo-pkg-llm/machbase"
 	"neo-pkg-llm/tools"
 )
@@ -51,7 +51,7 @@ func NewInstance(name string, cfg *Config) (*Instance, error) {
 	inst.mux = http.NewServeMux()
 	inst.registerHandlers()
 
-	log.Printf("[Instance:%s] Ready (machbase=%s, provider=%s, model=%s)",
+	logger.Infof("[Instance:%s] Ready (machbase=%s, provider=%s, model=%s)",
 		name, cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
 
 	return inst, nil
@@ -122,7 +122,7 @@ func (inst *Instance) restartLLM() error {
 	inst.registry = tools.NewRegistry(inst.mc)
 	inst.llmClient = newClient
 	inst.mu.Unlock()
-	log.Printf("[Instance:%s] LLM restarted: %s / %s", inst.name, inst.cfg.ResolveProvider(), inst.cfg.ResolveModelID())
+	logger.Infof("[Instance:%s] LLM restarted: %s / %s", inst.name, inst.cfg.ResolveProvider(), inst.cfg.ResolveModelID())
 	return nil
 }
 

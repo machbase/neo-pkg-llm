@@ -2,13 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"neo-pkg-llm/logger"
 )
 
 // Manager manages all Instances and routes HTTP requests by URL prefix.
@@ -30,7 +31,7 @@ func NewManager(configsDir string) *Manager {
 func (m *Manager) LoadAll() {
 	entries, err := os.ReadDir(m.configsDir)
 	if err != nil {
-		log.Printf("[Manager] No configs found in %s: %v", m.configsDir, err)
+		logger.Infof("[Manager] No configs found in %s: %v", m.configsDir, err)
 		return
 	}
 	for _, e := range entries {
@@ -40,11 +41,11 @@ func (m *Manager) LoadAll() {
 		name := strings.TrimSuffix(e.Name(), ".json")
 		cfg, err := m.loadConfigFile(name)
 		if err != nil {
-			log.Printf("[Manager] Failed to load config %s: %v", name, err)
+			logger.Infof("[Manager] Failed to load config %s: %v", name, err)
 			continue
 		}
 		if err := m.startInstance(name, cfg); err != nil {
-			log.Printf("[Manager] Failed to start instance %s: %v", name, err)
+			logger.Infof("[Manager] Failed to start instance %s: %v", name, err)
 		}
 	}
 }
@@ -72,7 +73,7 @@ func (m *Manager) startInstance(name string, cfg *Config) error {
 	m.mu.Lock()
 	m.instances[name] = inst
 	m.mu.Unlock()
-	log.Printf("[Manager] Instance started: %s", name)
+	logger.Infof("[Manager] Instance started: %s", name)
 	return nil
 }
 
@@ -86,7 +87,7 @@ func (m *Manager) stopInstance(name string) {
 
 	if ok {
 		inst.wsServ.CloseAll()
-		log.Printf("[Manager] Instance stopped: %s", name)
+		logger.Infof("[Manager] Instance stopped: %s", name)
 	}
 }
 
@@ -204,7 +205,7 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 			body.configPath = savePath
 			body.applyEnvOverrides()
 			if err := m.startInstance(userName, &body); err != nil {
-				log.Printf("[Manager] Instance start failed for %s: %v", userName, err)
+				logger.Infof("[Manager] Instance start failed for %s: %v", userName, err)
 				writeConfigsResp(w, http.StatusOK, true, "config saved but instance failed: "+err.Error(), time.Since(start), map[string]string{"name": userName})
 				return
 			}
@@ -291,7 +292,7 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 			body.configPath = newPath
 			body.applyEnvOverrides()
 			if err := m.startInstance(newName, &body); err != nil {
-				log.Printf("[Manager] Instance restart failed for %s: %v", newName, err)
+				logger.Infof("[Manager] Instance restart failed for %s: %v", newName, err)
 				writeConfigsResp(w, http.StatusOK, true, "config saved but instance failed: "+err.Error(), time.Since(start), map[string]string{"name": newName})
 				return
 			}

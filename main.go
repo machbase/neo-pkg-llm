@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 
 	"neo-pkg-llm/agent"
 	"neo-pkg-llm/llm"
+	"neo-pkg-llm/logger"
 	"neo-pkg-llm/machbase"
 	"neo-pkg-llm/mcp"
 	"neo-pkg-llm/tools"
@@ -26,6 +26,20 @@ func main() {
 	providerFlag := flag.String("provider", "", "Override LLM provider (claude, chatgpt, gemini)")
 	modelFlag := flag.String("model", "", "Override model name or model_id")
 	flag.Parse()
+
+	// Initialize logger
+	if err := logger.Init(&logger.Options{
+		Dir:        "logs",
+		FilePrefix: "neo-pkg-llm",
+		Level:      logger.DEBUG,
+		MaxSizeMB:  10,
+		MaxFiles:   5,
+		ToStdout:   true,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Std().Close()
 
 	cfg := LoadConfig(*configPath)
 
@@ -46,7 +60,7 @@ func main() {
 			serverPort = *port
 		}
 		if serverPort == "" {
-			log.Fatal("server port is required: set server.port in config or use --port flag")
+			logger.Fatalf("server port is required: set server.port in config or use --port flag")
 		}
 		runServer(cfg, serverPort)
 	case "mcp":
@@ -68,26 +82,26 @@ func newLLMSafe(cfg *Config) (llm.LLMProvider, error) {
 		if cfg.Claude.APIKey == "" {
 			return nil, fmt.Errorf("Claude API key is required")
 		}
-		log.Printf("LLM: Claude (%s)", modelID)
+		logger.Infof("LLM: Claude (%s)", modelID)
 		return llm.NewClaudeClient(cfg.Claude.APIKey, modelID), nil
 
 	case "chatgpt":
 		if cfg.ChatGPT.APIKey == "" {
 			return nil, fmt.Errorf("ChatGPT API key is required")
 		}
-		log.Printf("LLM: ChatGPT (%s)", modelID)
+		logger.Infof("LLM: ChatGPT (%s)", modelID)
 		return llm.NewChatGPTClient(cfg.ChatGPT.APIKey, modelID), nil
 
 	case "gemini":
 		if cfg.Gemini.APIKey == "" {
 			return nil, fmt.Errorf("Gemini API key is required")
 		}
-		log.Printf("LLM: Gemini (%s)", modelID)
+		logger.Infof("LLM: Gemini (%s)", modelID)
 		return llm.NewGeminiClient(cfg.Gemini.APIKey, modelID), nil
 
 	case "ollama":
 		ollamaURL := cfg.OllamaURL()
-		log.Printf("LLM: Ollama (%s) at %s", modelID, ollamaURL)
+		logger.Infof("LLM: Ollama (%s) at %s", modelID, ollamaURL)
 		return llm.NewOllamaClient(ollamaURL, modelID), nil
 
 	default:
@@ -99,7 +113,7 @@ func newLLMSafe(cfg *Config) (llm.LLMProvider, error) {
 func newLLM(cfg *Config) llm.LLMProvider {
 	client, err := newLLMSafe(cfg)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatalf("%v", err)
 	}
 	return client
 }
@@ -112,7 +126,7 @@ func runMCP(cfg *Config) {
 
 	server := mcp.NewServer(registry)
 	if err := server.Run(); err != nil {
-		log.Fatalf("MCP server error: %v", err)
+		logger.Fatalf("MCP server error: %v", err)
 	}
 }
 
@@ -120,14 +134,14 @@ func runMCP(cfg *Config) {
 
 func runWS(cfg *Config, neoURL string) {
 	if neoURL == "" {
-		log.Fatal("--neo-ws-url is required for ws mode")
+		logger.Fatalf("--neo-ws-url is required for ws mode")
 	}
 	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
 	registry := tools.NewRegistry(mc)
 	llmClient := newLLM(cfg)
 
-	log.Printf("WebSocket client mode: connecting to %s", neoURL)
-	log.Printf("Machbase: %s | Provider: %s | Model: %s", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
+	logger.Infof("WebSocket client mode: connecting to %s", neoURL)
+	logger.Infof("Machbase: %s | Provider: %s | Model: %s", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
 
 	client := newWSClient(neoURL, llmClient, registry)
 	client.Run()
@@ -174,7 +188,7 @@ const configsDir = "configs"
 
 func runServer(cfg *Config, port string) {
 	if err := os.MkdirAll(configsDir, 0755); err != nil {
-		log.Fatalf("failed to create configs directory: %v", err)
+		logger.Fatalf("failed to create configs directory: %v", err)
 	}
 
 	mgr := NewManager(configsDir)
@@ -212,27 +226,27 @@ func runServer(cfg *Config, port string) {
 		mgr.RouteInstance(w, r)
 	})
 
-	log.Printf("Agentic Loop Go server starting on :%s", port)
-	log.Printf("Configs dir: %s", configsDir)
-	log.Printf("Endpoints (master):")
-	log.Printf("  GET  /health                — Health check")
-	log.Printf("  GET  /settings              — Settings page")
-	log.Printf("  GET  /api/instances         — List running instances")
-	log.Printf("  POST /api/configs           — Save config + start instance")
-	log.Printf("  GET  /api/configs           — List configs")
-	log.Printf("  GET  /api/configs/{name}    — Get config")
-	log.Printf("  PUT  /api/configs/{name}    — Update config + restart instance")
-	log.Printf("  DELETE /api/configs/{name}  — Delete config + stop instance")
-	log.Printf("Endpoints (per-instance: /{name}/...):")
-	log.Printf("  POST /{name}/api/chat         — Non-streaming chat")
-	log.Printf("  POST /{name}/api/chat/stream  — SSE streaming chat")
-	log.Printf("  GET  /{name}/api/settings     — Get instance config")
-	log.Printf("  POST /{name}/api/restart-llm  — Restart instance LLM")
-	log.Printf("  GET  /{name}/ws               — WebSocket (Chat UI)")
-	log.Printf("  GET  /{name}/health           — Instance health")
+	logger.Infof("Agentic Loop Go server starting on :%s", port)
+	logger.Infof("Configs dir: %s", configsDir)
+	logger.Infof("Endpoints (master):")
+	logger.Infof("  GET  /health                — Health check")
+	logger.Infof("  GET  /settings              — Settings page")
+	logger.Infof("  GET  /api/instances         — List running instances")
+	logger.Infof("  POST /api/configs           — Save config + start instance")
+	logger.Infof("  GET  /api/configs           — List configs")
+	logger.Infof("  GET  /api/configs/{name}    — Get config")
+	logger.Infof("  PUT  /api/configs/{name}    — Update config + restart instance")
+	logger.Infof("  DELETE /api/configs/{name}  — Delete config + stop instance")
+	logger.Infof("Endpoints (per-instance: /{name}/...):")
+	logger.Infof("  POST /{name}/api/chat         — Non-streaming chat")
+	logger.Infof("  POST /{name}/api/chat/stream  — SSE streaming chat")
+	logger.Infof("  GET  /{name}/api/settings     — Get instance config")
+	logger.Infof("  POST /{name}/api/restart-llm  — Restart instance LLM")
+	logger.Infof("  GET  /{name}/ws               — WebSocket (Chat UI)")
+	logger.Infof("  GET  /{name}/health           — Instance health")
 
 	if err := http.ListenAndServe(":"+port, corsMiddleware(handler)); err != nil {
-		log.Fatal(err)
+		logger.Fatalf("%v", err)
 	}
 }
 

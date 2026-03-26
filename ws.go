@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 
 	"neo-pkg-llm/agent"
 	"neo-pkg-llm/llm"
+	"neo-pkg-llm/logger"
 	"neo-pkg-llm/tools"
 )
 
@@ -67,22 +67,22 @@ func (w *wsClient) Run() {
 	for {
 		err := w.connect()
 		if err != nil {
-			log.Printf("[WS] Connection failed: %v", err)
+			logger.Infof("[WS] Connection failed: %v", err)
 		}
-		log.Println("[WS] Reconnecting in 3 seconds...")
+		logger.Infof("[WS] Reconnecting in 3 seconds...")
 		time.Sleep(3 * time.Second)
 	}
 }
 
 func (w *wsClient) connect() error {
-	log.Printf("[WS] Connecting to %s", w.url)
+	logger.Infof("[WS] Connecting to %s", w.url)
 	conn, _, err := websocket.DefaultDialer.Dial(w.url, nil)
 	if err != nil {
 		return err
 	}
 	w.conn = conn
 	defer conn.Close()
-	log.Println("[WS] Connected to Neo")
+	logger.Infof("[WS] Connected to Neo")
 
 	for {
 		var msg wsInMessage
@@ -104,7 +104,7 @@ func (w *wsClient) connect() error {
 		case "stop":
 			w.handleStop(msg.SessionID)
 		default:
-			log.Printf("[WS] Unknown message type: %s", msg.Type)
+			logger.Infof("[WS] Unknown message type: %s", msg.Type)
 		}
 	}
 }
@@ -128,12 +128,12 @@ func (w *wsClient) handleChat(sessionID, query string) {
 			lastUsed: time.Now(),
 		}
 		w.sessions.Store(sessionID, sess)
-		log.Printf("[WS] New session: %s", sessionID)
+		logger.Infof("[WS] New session: %s", sessionID)
 	} else {
 		// Existing session: update cancel func and timestamp, reuse agent
 		sess.cancel = cancel
 		sess.lastUsed = time.Now()
-		log.Printf("[WS] Continuing session: %s", sessionID)
+		logger.Infof("[WS] Continuing session: %s", sessionID)
 	}
 
 	defer func() {
@@ -166,7 +166,7 @@ func (w *wsClient) handleStop(sessionID string) {
 	if val, ok := w.sessions.Load(sessionID); ok {
 		if s, ok := val.(*session); ok {
 			s.cancel()
-			log.Printf("[WS] Stopped session: %s", sessionID)
+			logger.Infof("[WS] Stopped session: %s", sessionID)
 		}
 	}
 }
@@ -182,7 +182,7 @@ func (w *wsClient) sessionReaper() {
 			if now.Sub(s.lastUsed) > sessionTTL {
 				s.cancel()
 				w.sessions.Delete(key)
-				log.Printf("[WS] Session expired: %s", key)
+				logger.Infof("[WS] Session expired: %s", key)
 			}
 			return true
 		})
@@ -194,7 +194,7 @@ func (w *wsClient) writeJSON(v any) {
 	defer w.writeMu.Unlock()
 	if w.conn != nil {
 		if err := w.conn.WriteJSON(v); err != nil {
-			log.Printf("[WS] Write error: %v", err)
+			logger.Infof("[WS] Write error: %v", err)
 		}
 	}
 }

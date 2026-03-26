@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -12,6 +11,7 @@ import (
 
 	"neo-pkg-llm/agent"
 	"neo-pkg-llm/llm"
+	"neo-pkg-llm/logger"
 	"neo-pkg-llm/machbase"
 	"neo-pkg-llm/tools"
 )
@@ -33,7 +33,7 @@ func (s *wsSession) writeJSON(v any) {
 	defer s.writeMu.Unlock()
 	if s.conn != nil {
 		if err := s.conn.WriteJSON(v); err != nil {
-			log.Printf("[WSServer] Write error: %v", err)
+			logger.Infof("[WSServer] Write error: %v", err)
 		}
 	}
 }
@@ -91,11 +91,11 @@ func (s *wsServer) createLLM(userID, provider, model string) (llm.LLMProvider, e
 func (s *wsServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("[WSServer] Upgrade failed: %v", err)
+		logger.Infof("[WSServer] Upgrade failed: %v", err)
 		return
 	}
 
-	log.Printf("[WSServer] Connected")
+	logger.Infof("[WSServer] Connected")
 	s.readLoop(conn)
 }
 
@@ -106,7 +106,7 @@ func (s *wsServer) readLoop(conn *websocket.Conn) {
 	for {
 		var msg wsInMessage
 		if err := conn.ReadJSON(&msg); err != nil {
-			log.Printf("[WSServer] Read error: %v", err)
+			logger.Infof("[WSServer] Read error: %v", err)
 			s.sessions.Range(func(key, val any) bool {
 				sess := val.(*wsSession)
 				sess.writeMu.Lock()
@@ -132,7 +132,7 @@ func (s *wsServer) readLoop(conn *websocket.Conn) {
 		case "get_models":
 			s.handleGetModels(conn, userID)
 		default:
-			log.Printf("[WSServer] Unknown type: %s", msg.Type)
+			logger.Infof("[WSServer] Unknown type: %s", msg.Type)
 		}
 	}
 }
@@ -150,7 +150,7 @@ func (s *wsServer) handleChat(conn *websocket.Conn, userID, sessionID, provider,
 		sess = val.(*wsSession)
 		// Verify session ownership
 		if sess.userID != userID {
-			log.Printf("[WSServer] Session %s: owner=%s, caller=%s → rejected", sessionID, sess.userID, userID)
+			logger.Infof("[WSServer] Session %s: owner=%s, caller=%s → rejected", sessionID, sess.userID, userID)
 			emitErrorMsg(conn, sessionID, "세션 접근 권한이 없습니다.")
 			return
 		}
@@ -159,7 +159,7 @@ func (s *wsServer) handleChat(conn *websocket.Conn, userID, sessionID, provider,
 
 		// Model changed → reset agent
 		if sess.provider != provider || sess.model != model {
-			log.Printf("[WSServer] Model changed: %s/%s → %s/%s, resetting agent", sess.provider, sess.model, provider, model)
+			logger.Infof("[WSServer] Model changed: %s/%s → %s/%s, resetting agent", sess.provider, sess.model, provider, model)
 			sess = nil // force new session creation below
 			s.sessions.Delete(sessionID)
 		}
@@ -172,7 +172,7 @@ func (s *wsServer) handleChat(conn *websocket.Conn, userID, sessionID, provider,
 		llmClient, err := s.createLLM(userID, provider, model)
 		if err != nil {
 			cancel()
-			log.Printf("[WSServer] LLM creation failed: %v", err)
+			logger.Infof("[WSServer] LLM creation failed: %v", err)
 			emitErrorMsg(conn, sessionID, "LLM 생성 실패: "+err.Error())
 			return
 		}
@@ -188,14 +188,14 @@ func (s *wsServer) handleChat(conn *websocket.Conn, userID, sessionID, provider,
 			conn:     conn,
 		}
 		s.sessions.Store(sessionID, sess)
-		log.Printf("[WSServer] New session: %s (user=%s, %s/%s)", sessionID, userID, provider, model)
+		logger.Infof("[WSServer] New session: %s (user=%s, %s/%s)", sessionID, userID, provider, model)
 	} else {
 		sess.cancel = cancel
 		sess.lastUsed = time.Now()
 		sess.writeMu.Lock()
 		sess.conn = conn
 		sess.writeMu.Unlock()
-		log.Printf("[WSServer] Continuing session: %s (user=%s, %s/%s)", sessionID, userID, provider, model)
+		logger.Infof("[WSServer] Continuing session: %s (user=%s, %s/%s)", sessionID, userID, provider, model)
 	}
 
 	defer func() {
@@ -215,7 +215,7 @@ func (s *wsServer) handleStop(sessionID, userID string) {
 			return
 		}
 		sess.cancel()
-		log.Printf("[WSServer] Stopped session: %s (user=%s)", sessionID, userID)
+		logger.Infof("[WSServer] Stopped session: %s (user=%s)", sessionID, userID)
 	}
 }
 
@@ -235,7 +235,7 @@ func (s *wsServer) sessionReaper() {
 				}
 				sess.writeMu.Unlock()
 				s.sessions.Delete(key)
-				log.Printf("[WSServer] Session expired: %s (user=%s)", key, sess.userID)
+				logger.Infof("[WSServer] Session expired: %s (user=%s)", key, sess.userID)
 			}
 			return true
 		})
@@ -293,7 +293,7 @@ func (s *wsServer) handleGetModels(conn *websocket.Conn, userID string) {
 
 func writeJSONTo(conn *websocket.Conn, v any) {
 	if err := conn.WriteJSON(v); err != nil {
-		log.Printf("[WSServer] Write error: %v", err)
+		logger.Infof("[WSServer] Write error: %v", err)
 	}
 }
 
