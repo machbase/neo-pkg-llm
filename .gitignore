@@ -1,3 +1,5 @@
 tmp/
 settings.json
 configs/
+*.tar.gz
+.env
