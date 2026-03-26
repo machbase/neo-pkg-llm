@@ -1,7 +1,11 @@
 start:
   - run: ./scripts/start.sh
+  - on: windows
+    run: scripts\start.cmd
 stop:
   - run: ./scripts/stop.sh
+  - on: windows
+    run: scripts\stop.cmd
 
 auto_start: true
 
