@@ -138,7 +138,11 @@ func runWS(cfg *Config, neoURL string) {
 	}
 	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
 	registry := tools.NewRegistry(mc)
-	llmClient := newLLM(cfg)
+
+	llmClient, err := newLLMSafe(cfg)
+	if err != nil {
+		logger.Warnf("LLM init failed (will report on chat): %v", err)
+	}
 
 	logger.Infof("WebSocket client mode: connecting to %s", neoURL)
 	logger.Infof("Machbase: %s | Provider: %s | Model: %s", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
