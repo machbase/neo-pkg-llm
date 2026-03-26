@@ -7,6 +7,7 @@ import { ModelsSection } from './sections/ModelsSection';
 import { ActionsSection } from './sections/ActionsSection';
 import { getConfigList, getConfig, deleteConfig } from './services/settingsApi';
 import { defaultConfig } from './types/settings';
+import { getCurrentUser, isSysUser } from './utils/auth';
 import type { AppConfig, ModelProvider, ToastItem, ToastType } from './types/settings';
 
 export function App() {
@@ -29,7 +30,12 @@ export function App() {
 
   const loadConfigList = useCallback(async () => {
     try {
-      const list = await getConfigList();
+      const all = await getConfigList();
+      const user = getCurrentUser();
+      // sys user sees everything; other users see only their own config
+      const list = isSysUser() || !user
+        ? all
+        : all.filter((name) => name === user);
       setConfigs(list);
       return list;
     } catch {
