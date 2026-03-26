@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
-import { ServerSection } from "./sections/ServerSection";
+// import { ServerSection } from "./sections/ServerSection";
 import { MachbaseSection } from "./sections/MachbaseSection";
 import { ApiKeysSection } from "./sections/ApiKeysSection";
 import { ModelsSection } from "./sections/ModelsSection";
@@ -111,9 +111,9 @@ export function App() {
         [loadConfigList]
     );
 
-    const handleServerChange = useCallback((server: AppConfig["server"]) => {
-        setConfig((prev) => ({ ...prev, server }));
-    }, []);
+    // const handleServerChange = useCallback((server: AppConfig["server"]) => {
+    //     setConfig((prev) => ({ ...prev, server }));
+    // }, []);
 
     const handleMachbaseChange = useCallback((machbase: AppConfig["machbase"]) => {
         setConfig((prev) => ({ ...prev, machbase }));

@@ -53,7 +53,7 @@ export interface ApiResponse<T> {
 
 export function defaultConfig(): AppConfig {
     return {
-        server: { port: "" },
+        server: { port: "8884" },
         machbase: { host: "", port: "", user: "", work_dir: "" },
         claude: { api_key: "", models: [] },
         chatgpt: { api_key: "", models: [] },

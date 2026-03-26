@@ -1,21 +1,32 @@
 import type { AppConfig, ApiResponse } from '../types/settings';
+import { defaultConfig } from '../types/settings';
 
 // ── Config list ──
 export async function getConfigList(): Promise<string[]> {
   const res = await fetch('/api/configs');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const body = (await res.json()) as ApiResponse<{ configs: string[] }>;
+  const body = (await res.json()) as ApiResponse<{ configs: Array<string | { name: string; running: boolean }> }>;
   if (!body.success) throw new Error(body.reason);
-  return body.data?.configs ?? [];
+  const raw = body.data?.configs ?? [];
+  return raw.map((item) => (typeof item === 'string' ? item : item.name));
 }
 
 // ── Config detail ──
 export async function getConfig(name: string): Promise<AppConfig> {
   const res = await fetch(`/api/configs/${encodeURIComponent(name)}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const body = (await res.json()) as ApiResponse<AppConfig>;
+  const body = (await res.json()) as ApiResponse<{ config: AppConfig; running: boolean }>;
   if (!body.success) throw new Error(body.reason);
-  return body.data as AppConfig;
+  const defaults = defaultConfig();
+  const data = body.data?.config ?? ({} as Partial<AppConfig>);
+  return {
+    server: { ...defaults.server, ...data.server },
+    machbase: { ...defaults.machbase, ...data.machbase },
+    claude: { ...defaults.claude, ...data.claude },
+    chatgpt: { ...defaults.chatgpt, ...data.chatgpt },
+    gemini: { ...defaults.gemini, ...data.gemini },
+    ollama: { ...defaults.ollama, ...data.ollama },
+  };
 }
 
 // ── Config create ──
