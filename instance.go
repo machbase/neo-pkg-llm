@@ -34,7 +34,7 @@ func NewInstance(name string, cfg *Config) (*Instance, error) {
 
 	llmClient, err := newLLMSafe(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("instance %s: LLM init failed: %w", name, err)
+		logger.Warnf("[Instance:%s] LLM init failed (will report via socket): %v", name, err)
 	}
 
 	inst := &Instance{
@@ -42,7 +42,7 @@ func NewInstance(name string, cfg *Config) (*Instance, error) {
 		cfg:       cfg,
 		mc:        mc,
 		registry:  registry,
-		llmClient: llmClient,
+		llmClient: llmClient, // may be nil
 	}
 
 	inst.wsServ = newWSServer(mc, cfg)
