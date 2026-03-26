@@ -3,5 +3,5 @@ set -e
 
 mkdir -p ./logs
 
-echo $$ > ./scripts/pid
+echo $$ > ./.backend/pid
 exec ./neo-pkg-llm > ./logs/stdout.log 2> ./logs/stderr.log
