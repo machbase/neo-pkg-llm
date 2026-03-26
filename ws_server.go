@@ -285,6 +285,15 @@ func (s *wsServer) handleGetModels(conn *websocket.Conn, userID string) {
 		providers = append(providers, providerModels{Provider: "ollama", Models: models})
 	}
 
+	if len(providers) == 0 {
+		logger.Warnf("[WSServer] No available providers: API key not configured")
+		writeJSONTo(conn, map[string]any{
+			"type":  "error",
+			"error": "사용 가능한 LLM provider가 없습니다. API key 설정을 확인해주세요.",
+		})
+		return
+	}
+
 	writeJSONTo(conn, map[string]any{
 		"type":      "models",
 		"providers": providers,

@@ -110,17 +110,6 @@ func (w *wsClient) connect() error {
 }
 
 func (w *wsClient) handleChat(sessionID, query string) {
-	// --- LLM check ---
-	if w.llm == nil {
-		logger.Errorf("[WS] Chat rejected: LLM not initialized")
-		w.writeJSON(wsOutMessage{
-			Type:      "error",
-			SessionID: sessionID,
-			Content:   "LLM이 초기화되지 않았습니다. API key 설정을 확인해주세요.",
-		})
-		return
-	}
-
 	// --- Session management ---
 	var sess *session
 	if val, ok := w.sessions.Load(sessionID); ok {
