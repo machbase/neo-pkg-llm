@@ -22,7 +22,7 @@ func main() {
 	mode := flag.String("mode", "server", "Run mode: 'server' (HTTP API), 'cli' (interactive), 'mcp' (MCP stdio server), or 'ws' (WebSocket client)")
 	port := flag.String("port", "", "HTTP server port (overrides config, server mode)")
 	neoWSURL := flag.String("neo-ws-url", "", "Neo WebSocket URL to connect to (ws mode)")
-	configPath := flag.String("config", "configs/config.json", "Path to config file")
+	configPath := flag.String("config", "configs/sys.json", "Path to config file")
 	providerFlag := flag.String("provider", "", "Override LLM provider (claude, chatgpt, gemini)")
 	modelFlag := flag.String("model", "", "Override model name or model_id")
 	flag.Parse()
