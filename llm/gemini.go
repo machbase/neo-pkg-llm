@@ -286,7 +286,7 @@ func (c *GeminiClient) Chat(ctx context.Context, messages []Message, toolDefs []
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("gemini returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("Gemini", resp.StatusCode, string(errBody))
 	}
 
 	// Read raw body for both typed parsing and raw parts extraction
@@ -348,7 +348,7 @@ func (c *GeminiClient) ChatStream(ctx context.Context, messages []Message, toolD
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("gemini returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("Gemini", resp.StatusCode, string(errBody))
 	}
 
 	// Parse SSE stream, accumulating both typed and raw parts

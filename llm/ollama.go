@@ -84,7 +84,7 @@ func (o *OllamaClient) Chat(ctx context.Context, messages []Message, toolDefs []
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ollama returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("Ollama", resp.StatusCode, string(errBody))
 	}
 
 	var openaiResp openaiResponse
@@ -132,7 +132,7 @@ func (o *OllamaClient) ChatStream(ctx context.Context, messages []Message, toolD
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ollama returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("Ollama", resp.StatusCode, string(errBody))
 	}
 
 	// Parse SSE stream (same format as OpenAI)

@@ -18,6 +18,7 @@ const (
 	EventToolCall   = "tool_call"
 	EventToolResult = "tool_result"
 	EventFinal      = "final"
+	EventError      = "error"
 )
 
 // Event represents a streaming event from the agent loop.
@@ -224,7 +225,7 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 				}
 			})
 			if err != nil {
-				ch <- Event{Type: EventFinal, Content: fmt.Sprintf("LLM 오류: %v", err)}
+				ch <- Event{Type: EventError, Content: fmt.Sprintf("LLM 오류: %v", err)}
 				return
 			}
 

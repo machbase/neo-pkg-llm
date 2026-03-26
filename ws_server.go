@@ -216,6 +216,23 @@ func (s *wsServer) handleStop(sessionID, userID string) {
 		}
 		sess.cancel()
 		logger.Infof("[WSServer] Stopped session: %s (user=%s)", sessionID, userID)
+
+		// Send stop confirmation to UI
+		sess.writeJSON(legacyMessage{
+			Type:    "msg",
+			Session: sessionID,
+			Message: &legacyMsgBody{
+				Ver:  "1.0",
+				ID:   0,
+				Type: "stop",
+				Body: &legacyBodyUnion{
+					OfStreamBlockDelta: &legacyStreamBlockDelta{
+						ContentType: "text",
+						Text:        "답변이 중지되었습니다.",
+					},
+				},
+			},
+		})
 	}
 }
 
@@ -320,16 +337,11 @@ func emitErrorMsg(conn *websocket.Conn, sessionID, errText string) {
 			},
 		})
 	}
-	emit("answer_start", nil)
-	emit("stream_msg_start", nil)
-	emit("stream_block_start", nil)
-	emit("stream_block_delta", &legacyBodyUnion{
-		OfStreamBlockDelta: &legacyStreamBlockDelta{
-			ContentType: "error",
-			Text:        errText,
-		},
+	writeJSONTo(conn, map[string]any{
+		"type":    "error",
+		"session": sessionID,
+		"msg":     errText,
 	})
-	emit("stream_block_stop", nil)
 	emit("stream_msg_stop", nil)
 	emit("answer_stop", nil)
 }
@@ -435,14 +447,11 @@ func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 				emit("stream_block_stop", nil)
 				inStreamBlock = false
 			}
-			emit("stream_block_start", nil)
-			emit("stream_block_delta", &legacyBodyUnion{
-				OfStreamBlockDelta: &legacyStreamBlockDelta{
-					ContentType: "error",
-					Text:        event.Content,
-				},
+			sess.writeJSON(map[string]any{
+				"type":    "error",
+				"session": sessionID,
+				"msg":     event.Content,
 			})
-			emit("stream_block_stop", nil)
 		}
 	}
 

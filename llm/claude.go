@@ -336,7 +336,7 @@ func (c *ClaudeClient) Chat(ctx context.Context, messages []Message, toolDefs []
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("claude returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("Claude", resp.StatusCode, string(errBody))
 	}
 
 	var claudeResp ClaudeResponse
@@ -381,7 +381,7 @@ func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolD
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("claude returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("Claude", resp.StatusCode, string(errBody))
 	}
 
 	// Parse SSE stream

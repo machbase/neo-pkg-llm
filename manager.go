@@ -240,7 +240,7 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/api/configs/", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		name := strings.TrimPrefix(r.URL.Path, "/api/configs/")
-		if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		if name == "" || strings.ContainsAny(name, "/\\.") {
 			writeConfigsResp(w, http.StatusBadRequest, false, "invalid name", time.Since(start), nil)
 			return
 		}

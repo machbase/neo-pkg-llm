@@ -168,7 +168,7 @@ func (c *ChatGPTClient) Chat(ctx context.Context, messages []Message, toolDefs [
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("chatgpt returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("ChatGPT", resp.StatusCode, string(errBody))
 	}
 
 	var openaiResp openaiResponse
@@ -209,7 +209,7 @@ func (c *ChatGPTClient) ChatStream(ctx context.Context, messages []Message, tool
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("chatgpt returned %d: %s", resp.StatusCode, string(errBody))
+		return nil, newAPIError("ChatGPT", resp.StatusCode, string(errBody))
 	}
 
 	// Parse SSE stream
