@@ -90,6 +90,9 @@ func packageTarGz(binary, platform string) error {
 	if err := addFileToTar(tw, binary); err != nil {
 		return err
 	}
+	if err := addFileToTar(tw, filepath.Join("scripts", "__install__.cmd")); err != nil {
+		return err
+	}
 
 	os.Remove(binary)
 	fmt.Println("Package ready:", archiveName)
@@ -110,6 +113,9 @@ func packageZip(binary, platform string) error {
 	defer zw.Close()
 
 	if err := addFileToZip(zw, binary); err != nil {
+		return err
+	}
+	if err := addFileToZip(zw, filepath.Join("scripts", "__install__.cmd")); err != nil {
 		return err
 	}
 
