@@ -218,20 +218,10 @@ func (s *wsServer) handleStop(sessionID, userID string) {
 		logger.Infof("[WSServer] Stopped session: %s (user=%s)", sessionID, userID)
 
 		// Send stop confirmation to UI
-		sess.writeJSON(legacyMessage{
-			Type:    "msg",
-			Session: sessionID,
-			Message: &legacyMsgBody{
-				Ver:  "1.0",
-				ID:   0,
-				Type: "stop",
-				Body: &legacyBodyUnion{
-					OfStreamBlockDelta: &legacyStreamBlockDelta{
-						ContentType: "text",
-						Text:        "답변이 중지되었습니다.",
-					},
-				},
-			},
+		sess.writeJSON(map[string]any{
+			"type":    "stop",
+			"session": sessionID,
+			"msg":     "답변이 중지되었습니다.",
 		})
 	}
 }
