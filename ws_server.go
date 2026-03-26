@@ -2,12 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -62,24 +59,29 @@ func newWSServer(mc *machbase.Client, cfg *Config) *wsServer {
 	}
 }
 
-// createLLM creates an LLM client. Loads user config from configs/{userID}.json first,
-// falls back to server config if not found.
+// CloseAll cancels all running queries and closes all WebSocket connections.
+func (s *wsServer) CloseAll() {
+	s.sessions.Range(func(key, val any) bool {
+		sess := val.(*wsSession)
+		sess.cancel()
+		sess.writeMu.Lock()
+		if sess.conn != nil {
+			sess.conn.Close()
+			sess.conn = nil
+		}
+		sess.writeMu.Unlock()
+		s.sessions.Delete(key)
+		return true
+	})
+}
+
+// createLLM creates an LLM client using the instance's config.
 func (s *wsServer) createLLM(userID, provider, model string) (llm.LLMProvider, error) {
 	if s.createLLMFn != nil {
 		return s.createLLMFn(provider, model)
 	}
 
-	// 유저별 config 로드
-	cfg := s.cfg
-	userCfgPath := filepath.Join(configsDir, userID+".json")
-	if data, err := os.ReadFile(userCfgPath); err == nil {
-		var userCfg Config
-		if json.Unmarshal(data, &userCfg) == nil {
-			cfg = &userCfg
-		}
-	}
-
-	cfgCopy := *cfg
+	cfgCopy := *s.cfg
 	cfgCopy.Provider = provider
 	cfgCopy.Model = model
 	return newLLMSafe(&cfgCopy)
@@ -250,15 +252,7 @@ func (s *wsServer) handleGetModels(conn *websocket.Conn, userID string) {
 		Models   []modelInfo `json:"models"`
 	}
 
-	// 유저별 config 로드 (configs/{userID}.json), 없으면 서버 config 사용
 	cfg := s.cfg
-	userCfgPath := filepath.Join(configsDir, userID+".json")
-	if data, err := os.ReadFile(userCfgPath); err == nil {
-		var userCfg Config
-		if json.Unmarshal(data, &userCfg) == nil {
-			cfg = &userCfg
-		}
-	}
 
 	var providers []providerModels
 

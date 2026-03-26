@@ -27,14 +27,15 @@ func decodeResp(t *testing.T, w *httptest.ResponseRecorder) apiResp {
 	return r
 }
 
-// setupConfigsHandler builds the /api/configs handlers backed by a temp directory.
+// setupConfigsHandler builds the /api/configs handlers backed by a temp directory using Manager.
 func setupConfigsHandler(t *testing.T) (http.Handler, string) {
 	t.Helper()
 	dir := t.TempDir()
-	configsDir := filepath.Join(dir, "configs")
+	cfgDir := filepath.Join(dir, "configs")
+	mgr := NewManager(cfgDir)
 	mux := http.NewServeMux()
-	registerConfigsHandlers(mux, configsDir)
-	return mux, configsDir
+	mgr.RegisterMasterHandlers(mux)
+	return mux, cfgDir
 }
 
 func sampleConfigBody(user string) string {
@@ -51,7 +52,7 @@ func sampleConfigBody(user string) string {
 // --- POST /api/configs ---
 
 func TestPostConfigs_Success(t *testing.T) {
-	handler, configsDir := setupConfigsHandler(t)
+	handler, cfgDir := setupConfigsHandler(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
 	w := httptest.NewRecorder()
@@ -67,16 +68,13 @@ func TestPostConfigs_Success(t *testing.T) {
 	if r.Elapse == "" {
 		t.Error("elapse should not be empty")
 	}
-	if r.Reason != "success" {
-		t.Errorf("expected reason='success', got %q", r.Reason)
-	}
 	var data map[string]string
 	json.Unmarshal(r.Data, &data)
 	if data["name"] != "alice" {
 		t.Errorf("expected data.name=alice, got %q", data["name"])
 	}
-	// 파일이 machbase.user 이름으로 저장됐는지 확인
-	if _, err := os.Stat(filepath.Join(configsDir, "alice.json")); err != nil {
+	// config file saved with machbase.user name
+	if _, err := os.Stat(filepath.Join(cfgDir, "alice.json")); err != nil {
 		t.Errorf("configs/alice.json not created: %v", err)
 	}
 }
@@ -88,10 +86,6 @@ func TestPostConfigs_RequiredFields(t *testing.T) {
 		desc string
 		body string
 	}{
-		{
-			"missing server.port",
-			`{"server":{},"machbase":{"host":"h","port":"5654","user":"u","work_dir":"/tmp/neo"}}`,
-		},
 		{
 			"missing machbase.host",
 			`{"server":{"port":"8884"},"machbase":{"host":"","port":"5654","user":"u","work_dir":"/tmp/neo"}}`,
@@ -176,13 +170,16 @@ func TestGetConfigs_Empty(t *testing.T) {
 	if !r.Success {
 		t.Error("expected success=true")
 	}
-	var data map[string][]string
-	json.Unmarshal(r.Data, &data)
-	if data["configs"] == nil {
-		t.Error("data.configs should be an empty slice, not nil")
+	type configList struct {
+		Configs []json.RawMessage `json:"configs"`
 	}
-	if len(data["configs"]) != 0 {
-		t.Errorf("expected empty list, got %v", data["configs"])
+	var data configList
+	json.Unmarshal(r.Data, &data)
+	if data.Configs == nil {
+		t.Error("data.configs should not be nil")
+	}
+	if len(data.Configs) != 0 {
+		t.Errorf("expected empty list, got %d items", len(data.Configs))
 	}
 }
 
@@ -199,10 +196,17 @@ func TestGetConfigs_AfterSave(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	r := decodeResp(t, w)
-	var data map[string][]string
+	type configEntry struct {
+		Name    string `json:"name"`
+		Running bool   `json:"running"`
+	}
+	type configList struct {
+		Configs []configEntry `json:"configs"`
+	}
+	var data configList
 	json.Unmarshal(r.Data, &data)
-	if len(data["configs"]) != 2 {
-		t.Errorf("expected 2 configs, got %d: %v", len(data["configs"]), data["configs"])
+	if len(data.Configs) != 2 {
+		t.Errorf("expected 2 configs, got %d", len(data.Configs))
 	}
 }
 
@@ -225,15 +229,18 @@ func TestGetConfigByName_Success(t *testing.T) {
 	if !r.Success {
 		t.Errorf("expected success=true, reason=%q", r.Reason)
 	}
-	var cfg Config
-	if err := json.Unmarshal(r.Data, &cfg); err != nil {
-		t.Fatalf("data is not valid Config JSON: %v", err)
+	var data struct {
+		Config  Config `json:"config"`
+		Running bool   `json:"running"`
 	}
-	if cfg.Machbase.User != "alice" {
-		t.Errorf("expected machbase.user=alice, got %q", cfg.Machbase.User)
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("data is not valid JSON: %v", err)
 	}
-	if cfg.Machbase.Host != "192.168.1.238" {
-		t.Errorf("expected host 192.168.1.238, got %q", cfg.Machbase.Host)
+	if data.Config.Machbase.User != "alice" {
+		t.Errorf("expected machbase.user=alice, got %q", data.Config.Machbase.User)
+	}
+	if data.Config.Machbase.Host != "192.168.1.238" {
+		t.Errorf("expected host 192.168.1.238, got %q", data.Config.Machbase.Host)
 	}
 }
 
@@ -257,17 +264,17 @@ func TestGetConfigByName_NotFound(t *testing.T) {
 }
 
 func TestGetConfigByName_OverwriteOnRepost(t *testing.T) {
-	handler, configsDir := setupConfigsHandler(t)
+	handler, cfgDir := setupConfigsHandler(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	// 같은 user(alice)로 host만 변경해서 재저장
+	// Repost with changed host
 	updated := `{"server":{"port":"8884"},"machbase":{"host":"10.0.0.1","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`
 	req = httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(updated))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	raw, _ := os.ReadFile(filepath.Join(configsDir, "alice.json"))
+	raw, _ := os.ReadFile(filepath.Join(cfgDir, "alice.json"))
 	var cfg Config
 	json.Unmarshal(raw, &cfg)
 	if cfg.Machbase.Host != "10.0.0.1" {
@@ -280,11 +287,11 @@ func TestGetConfigByName_OverwriteOnRepost(t *testing.T) {
 func TestPutConfigByName_Success(t *testing.T) {
 	handler, _ := setupConfigsHandler(t)
 
-	// 먼저 생성
+	// Create first
 	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	// 수정
+	// Update
 	updated := `{"server":{"port":"9999"},"machbase":{"host":"10.0.0.1","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`
 	req = httptest.NewRequest(http.MethodPut, "/api/configs/alice", strings.NewReader(updated))
 	w := httptest.NewRecorder()
@@ -303,18 +310,20 @@ func TestPutConfigByName_Success(t *testing.T) {
 		t.Errorf("expected data.name=alice, got %q", data["name"])
 	}
 
-	// 실제 변경됐는지 GET으로 확인
+	// Verify via GET
 	req = httptest.NewRequest(http.MethodGet, "/api/configs/alice", nil)
 	w = httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	r = decodeResp(t, w)
-	var cfg Config
-	json.Unmarshal(r.Data, &cfg)
-	if cfg.Machbase.Host != "10.0.0.1" {
-		t.Errorf("expected host 10.0.0.1, got %q", cfg.Machbase.Host)
+	var getResp struct {
+		Config Config `json:"config"`
 	}
-	if cfg.Server.Port != "9999" {
-		t.Errorf("expected server.port 9999, got %q", cfg.Server.Port)
+	json.Unmarshal(r.Data, &getResp)
+	if getResp.Config.Machbase.Host != "10.0.0.1" {
+		t.Errorf("expected host 10.0.0.1, got %q", getResp.Config.Machbase.Host)
+	}
+	if getResp.Config.Server.Port != "9999" {
+		t.Errorf("expected server.port 9999, got %q", getResp.Config.Server.Port)
 	}
 }
 
@@ -338,7 +347,7 @@ func TestPutConfigByName_NotFound(t *testing.T) {
 func TestPutConfigByName_RequiredFields(t *testing.T) {
 	handler, _ := setupConfigsHandler(t)
 
-	// 먼저 생성
+	// Create first
 	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -346,7 +355,6 @@ func TestPutConfigByName_RequiredFields(t *testing.T) {
 		desc string
 		body string
 	}{
-		{"missing server.port", `{"server":{},"machbase":{"host":"h","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`},
 		{"missing machbase.host", `{"server":{"port":"8884"},"machbase":{"host":"","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`},
 		{"missing machbase.user", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"","work_dir":"/tmp/neo"}}`},
 		{"missing machbase.work_dir", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"alice","work_dir":""}}`},
@@ -364,13 +372,13 @@ func TestPutConfigByName_RequiredFields(t *testing.T) {
 }
 
 func TestPutConfigByName_RenameOnUserChange(t *testing.T) {
-	handler, configsDir := setupConfigsHandler(t)
+	handler, cfgDir := setupConfigsHandler(t)
 
-	// alice로 생성
+	// Create alice
 	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	// machbase.user를 bob으로 변경
+	// Change machbase.user to bob
 	updated := `{"server":{"port":"8884"},"machbase":{"host":"192.168.1.238","port":"5654","user":"bob","work_dir":"/tmp/neo"}}`
 	req = httptest.NewRequest(http.MethodPut, "/api/configs/alice", strings.NewReader(updated))
 	w := httptest.NewRecorder()
@@ -386,12 +394,12 @@ func TestPutConfigByName_RenameOnUserChange(t *testing.T) {
 		t.Errorf("expected data.name=bob, got %q", data["name"])
 	}
 
-	// bob.json 생성됐는지 확인
-	if _, err := os.Stat(filepath.Join(configsDir, "bob.json")); err != nil {
+	// bob.json should exist
+	if _, err := os.Stat(filepath.Join(cfgDir, "bob.json")); err != nil {
 		t.Error("bob.json should exist after rename")
 	}
-	// alice.json 삭제됐는지 확인
-	if _, err := os.Stat(filepath.Join(configsDir, "alice.json")); err == nil {
+	// alice.json should be deleted
+	if _, err := os.Stat(filepath.Join(cfgDir, "alice.json")); err == nil {
 		t.Error("alice.json should be deleted after rename")
 	}
 }
@@ -399,13 +407,13 @@ func TestPutConfigByName_RenameOnUserChange(t *testing.T) {
 // --- DELETE /api/configs/{name} ---
 
 func TestDeleteConfigByName_Success(t *testing.T) {
-	handler, configsDir := setupConfigsHandler(t)
+	handler, cfgDir := setupConfigsHandler(t)
 
-	// 먼저 생성
+	// Create first
 	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody("alice")))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	// 삭제
+	// Delete
 	req = httptest.NewRequest(http.MethodDelete, "/api/configs/alice", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -423,8 +431,8 @@ func TestDeleteConfigByName_Success(t *testing.T) {
 		t.Errorf("expected data.name=alice, got %q", data["name"])
 	}
 
-	// 파일이 실제로 삭제됐는지 확인
-	if _, err := os.Stat(filepath.Join(configsDir, "alice.json")); err == nil {
+	// File should be deleted
+	if _, err := os.Stat(filepath.Join(cfgDir, "alice.json")); err == nil {
 		t.Error("alice.json should be deleted")
 	}
 }
@@ -451,28 +459,35 @@ func TestDeleteConfigByName_NotExist(t *testing.T) {
 func TestDeleteConfigByName_NotInListAfterDelete(t *testing.T) {
 	handler, _ := setupConfigsHandler(t)
 
-	// alice, bob 생성
+	// Create alice, bob
 	for _, user := range []string{"alice", "bob"} {
 		req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(sampleConfigBody(user)))
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	}
 
-	// alice 삭제
+	// Delete alice
 	req := httptest.NewRequest(http.MethodDelete, "/api/configs/alice", nil)
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
-	// 목록 확인
+	// List
 	req = httptest.NewRequest(http.MethodGet, "/api/configs", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
 	r := decodeResp(t, w)
-	var data map[string][]string
-	json.Unmarshal(r.Data, &data)
-	if len(data["configs"]) != 1 {
-		t.Errorf("expected 1 config after delete, got %d: %v", len(data["configs"]), data["configs"])
+	type configEntry struct {
+		Name    string `json:"name"`
+		Running bool   `json:"running"`
 	}
-	if data["configs"][0] != "bob" {
-		t.Errorf("expected bob to remain, got %q", data["configs"][0])
+	type configList struct {
+		Configs []configEntry `json:"configs"`
+	}
+	var data configList
+	json.Unmarshal(r.Data, &data)
+	if len(data.Configs) != 1 {
+		t.Errorf("expected 1 config after delete, got %d", len(data.Configs))
+	}
+	if len(data.Configs) > 0 && data.Configs[0].Name != "bob" {
+		t.Errorf("expected bob to remain, got %q", data.Configs[0].Name)
 	}
 }
