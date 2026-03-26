@@ -89,9 +89,6 @@ func packageTarGz(binary, platform string) error {
 	if err := addFileToTar(tw, binary); err != nil {
 		return err
 	}
-	if err := addDirToTar(tw, "configs"); err != nil {
-		return err
-	}
 
 	os.Remove(binary)
 	fmt.Println("Package ready:", archiveName)
@@ -112,9 +109,6 @@ func packageZip(binary, platform string) error {
 	defer zw.Close()
 
 	if err := addFileToZip(zw, binary); err != nil {
-		return err
-	}
-	if err := addDirToZip(zw, "configs"); err != nil {
 		return err
 	}
 
@@ -147,18 +141,6 @@ func addFileToTar(tw *tar.Writer, path string) error {
 	return err
 }
 
-func addDirToTar(tw *tar.Writer, dir string) error {
-	return tw.WriteHeader(&tar.Header{
-		Typeflag: tar.TypeDir,
-		Name:     dir + "/",
-		Mode:     0755,
-	})
-}
-
-func addDirToZip(zw *zip.Writer, dir string) error {
-	_, err := zw.Create(dir + "/")
-	return err
-}
 
 func addFileToZip(zw *zip.Writer, path string) error {
 	f, err := os.Open(path)

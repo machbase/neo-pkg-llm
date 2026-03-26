@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -108,6 +109,7 @@ func LoadConfig(path string) *Config {
 	if err != nil {
 		// config.json not found → create with defaults
 		log.Printf("Config file not found (%s), creating with defaults", path)
+		os.MkdirAll(filepath.Dir(path), 0755)
 		cfg.Save()
 		cfg.applyEnvOverrides()
 		return cfg
