@@ -12,15 +12,15 @@ import (
 	"time"
 )
 
-// OllamaClient implements LLMProvider for Ollama's OpenAI-compatible API.
+// OllamaClient implements LLMProvider for Ollama's native /api/chat API.
 type OllamaClient struct {
-	Model      string
-	BaseURL    string
+	Model       string
+	BaseURL     string
 	Temperature float64
-	NumPredict int
-	NumCtx     int
-	NumGPU     int
-	client     *http.Client
+	NumPredict  int
+	NumCtx      int
+	NumGPU      int
+	client      *http.Client
 }
 
 type OllamaOptions struct {
@@ -42,27 +42,85 @@ func NewOllamaClient(baseURL, model string) *OllamaClient {
 		BaseURL:     baseURL,
 		Temperature: 0,
 		NumPredict:  4096,
-		NumCtx:      32768,
+		NumCtx:      262144,
 		NumGPU:      36,
 		client:      &http.Client{Timeout: 10 * time.Minute},
 	}
 }
 
-// ollamaRequest extends openaiRequest with Ollama-specific options.
-type ollamaRequest struct {
+// --- Ollama native API types ---
+
+type ollamaNativeRequest struct {
 	Model    string           `json:"model"`
-	Messages []openaiMessage  `json:"messages"`
+	Messages []ollamaMessage  `json:"messages"`
 	Tools    []map[string]any `json:"tools,omitempty"`
-	Stream   bool             `json:"stream,omitempty"`
+	Stream   bool             `json:"stream"`
 	Options  *OllamaOptions   `json:"options,omitempty"`
 }
 
-// Chat sends a non-streaming request to Ollama.
+type ollamaMessage struct {
+	Role      string           `json:"role"`
+	Content   string           `json:"content"`
+	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+}
+
+type ollamaToolCall struct {
+	Function ollamaToolFunc `json:"function"`
+}
+
+type ollamaToolFunc struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+type ollamaNativeResponse struct {
+	Message    ollamaMessage `json:"message"`
+	Done       bool          `json:"done"`
+	DoneReason string        `json:"done_reason,omitempty"`
+	Error      string        `json:"error,omitempty"`
+}
+
+func messagesToOllama(msgs []Message) []ollamaMessage {
+	var result []ollamaMessage
+	for _, msg := range msgs {
+		om := ollamaMessage{Role: msg.Role, Content: msg.Content}
+		for _, tc := range msg.ToolCalls {
+			om.ToolCalls = append(om.ToolCalls, ollamaToolCall{
+				Function: ollamaToolFunc{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			})
+		}
+		result = append(result, om)
+	}
+	return result
+}
+
+func ollamaToMessage(om ollamaMessage) Message {
+	msg := Message{Role: om.Role, Content: om.Content}
+	for _, tc := range om.ToolCalls {
+		args := tc.Function.Arguments
+		if args == nil {
+			args = map[string]any{}
+		}
+		msg.ToolCalls = append(msg.ToolCalls, ToolCall{
+			Function: ToolCallFunction{
+				Name:      tc.Function.Name,
+				Arguments: args,
+			},
+		})
+	}
+	return msg
+}
+
+// Chat sends a non-streaming request to Ollama via native /api/chat.
 func (o *OllamaClient) Chat(ctx context.Context, messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
-	reqBody := ollamaRequest{
+	reqBody := ollamaNativeRequest{
 		Model:    o.Model,
-		Messages: messagesToOpenAI(messages),
+		Messages: messagesToOllama(messages),
 		Tools:    toolDefs,
+		Stream:   false,
 		Options: &OllamaOptions{
 			Temperature: o.Temperature,
 			NumPredict:  o.NumPredict,
@@ -72,9 +130,8 @@ func (o *OllamaClient) Chat(ctx context.Context, messages []Message, toolDefs []
 	}
 
 	body, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/api/chat", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer ollama")
 
 	resp, err := o.client.Do(req)
 	if err != nil {
@@ -87,28 +144,27 @@ func (o *OllamaClient) Chat(ctx context.Context, messages []Message, toolDefs []
 		return nil, newAPIError("Ollama", resp.StatusCode, string(errBody))
 	}
 
-	var openaiResp openaiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+	var nativeResp ollamaNativeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&nativeResp); err != nil {
 		return nil, fmt.Errorf("failed to decode ollama response: %w", err)
 	}
 
-	if openaiResp.Error != nil {
-		return nil, fmt.Errorf("ollama error: %s", openaiResp.Error.Message)
+	if nativeResp.Error != "" {
+		return nil, fmt.Errorf("ollama error: %s", nativeResp.Error)
 	}
 
-	msg := openaiResponseToMessage(&openaiResp)
 	return &ChatResponse{
 		Model:   o.Model,
-		Message: msg,
+		Message: ollamaToMessage(nativeResp.Message),
 		Done:    true,
 	}, nil
 }
 
-// ChatStream sends a streaming request to Ollama.
+// ChatStream sends a streaming request to Ollama via native /api/chat.
 func (o *OllamaClient) ChatStream(ctx context.Context, messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {
-	reqBody := ollamaRequest{
+	reqBody := ollamaNativeRequest{
 		Model:    o.Model,
-		Messages: messagesToOpenAI(messages),
+		Messages: messagesToOllama(messages),
 		Tools:    toolDefs,
 		Stream:   true,
 		Options: &OllamaOptions{
@@ -120,9 +176,8 @@ func (o *OllamaClient) ChatStream(ctx context.Context, messages []Message, toolD
 	}
 
 	body, _ := json.Marshal(reqBody)
-	req, _ := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/api/chat", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer ollama")
 
 	resp, err := o.client.Do(req)
 	if err != nil {
@@ -135,75 +190,45 @@ func (o *OllamaClient) ChatStream(ctx context.Context, messages []Message, toolD
 		return nil, newAPIError("Ollama", resp.StatusCode, string(errBody))
 	}
 
-	// Parse SSE stream (same format as OpenAI)
+	// Ollama native streaming: one JSON object per line
 	var contentBuf strings.Builder
-	var toolCalls []openaiToolCall
+	var toolCalls []ollamaToolCall
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			break
-		}
-
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
-						Index    int    `json:"index"`
-						ID       string `json:"id"`
-						Type     string `json:"type"`
-						Function struct {
-							Name      string `json:"name"`
-							Arguments string `json:"arguments"`
-						} `json:"function"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-			} `json:"choices"`
-		}
-		if json.Unmarshal([]byte(data), &chunk) != nil {
-			continue
-		}
-		if len(chunk.Choices) == 0 {
+		if line == "" {
 			continue
 		}
 
-		delta := chunk.Choices[0].Delta
+		var chunk ollamaNativeResponse
+		if json.Unmarshal([]byte(line), &chunk) != nil {
+			continue
+		}
 
-		if delta.Content != "" {
-			contentBuf.WriteString(delta.Content)
+		if chunk.Message.Content != "" {
+			contentBuf.WriteString(chunk.Message.Content)
 			if cb != nil {
 				cb(&ChatResponse{
-					Message: Message{Role: "assistant", Content: delta.Content},
+					Message: Message{Role: "assistant", Content: chunk.Message.Content},
 				})
 			}
 		}
 
-		for _, tc := range delta.ToolCalls {
-			for len(toolCalls) <= tc.Index {
-				toolCalls = append(toolCalls, openaiToolCall{Type: "function"})
-			}
-			if tc.ID != "" {
-				toolCalls[tc.Index].ID = tc.ID
-			}
-			if tc.Function.Name != "" {
-				toolCalls[tc.Index].Function.Name = tc.Function.Name
-			}
-			toolCalls[tc.Index].Function.Arguments += tc.Function.Arguments
+		if len(chunk.Message.ToolCalls) > 0 {
+			toolCalls = append(toolCalls, chunk.Message.ToolCalls...)
+		}
+
+		if chunk.Done {
+			break
 		}
 	}
 
 	msg := Message{Role: "assistant", Content: contentBuf.String()}
 	for _, tc := range toolCalls {
-		var args map[string]any
-		json.Unmarshal([]byte(tc.Function.Arguments), &args)
+		args := tc.Function.Arguments
 		if args == nil {
 			args = map[string]any{}
 		}

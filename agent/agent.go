@@ -262,6 +262,14 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 					return
 				}
 				step++
+				fmt.Printf("\n[Step %d] 도구 호출: %s\n", step, tc.Function.Name)
+				for k, v := range tc.Function.Arguments {
+					vs := fmt.Sprintf("%v", v)
+					if len(vs) > 200 {
+						vs = vs[:200] + "..."
+					}
+					fmt.Printf("  ├─ %s: %s\n", k, vs)
+				}
 				ch <- Event{
 					Type: EventToolCall,
 					Step: step,
@@ -370,12 +378,61 @@ func (a *Agent) ContinueMessages(query string) {
 	})
 }
 
+// inferTableName scans previous messages to find a table name.
+// 1) Find list_tables result → extract known table names
+// 2) Match against user query or LLM text mentioning a table
+// 3) If only one table exists, use it directly
+func (a *Agent) inferTableName() string {
+	// Collect known table names from list_tables results
+	var knownTables []string
+	for i, m := range a.messages {
+		if m.Role == "tool" && i > 0 {
+			// Check if previous message had a list_tables call
+			prev := a.messages[i-1]
+			for _, tc := range prev.ToolCalls {
+				if tc.Function.Name == "list_tables" {
+					for _, line := range strings.Split(strings.TrimSpace(m.Content), "\n") {
+						t := strings.TrimSpace(line)
+						if t != "" && t != "NAME" && !strings.Contains(t, " ") {
+							knownTables = append(knownTables, t)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(knownTables) == 0 {
+		return ""
+	}
+	if len(knownTables) == 1 {
+		return knownTables[0]
+	}
+
+	// Find user query and LLM text to match against table names
+	var searchText string
+	for _, m := range a.messages {
+		if m.Role == "user" || m.Role == "assistant" {
+			searchText += " " + strings.ToUpper(m.Content)
+		}
+	}
+
+	for _, t := range knownTables {
+		if strings.Contains(searchText, t) {
+			return t
+		}
+	}
+
+	return ""
+}
+
 // --- Tool call auto-fixing (mirrors Python _fix_tool_calls) ---
 
 func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 	if len(msg.ToolCalls) == 0 {
 		return msg
 	}
+
 	for i := range msg.ToolCalls {
 		tc := &msg.ToolCalls[i]
 		args := tc.Function.Arguments
@@ -390,6 +447,17 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 		// regardless of which parameter name the LLM chose to use.
 		normalizeArgs(name, args)
 
+		// list_table_tags: table_name 누락 시 이전 messages에서 자동 추론
+		if name == "list_table_tags" {
+			table, _ := args["table_name"].(string)
+			if table == "" {
+				if inferred := a.inferTableName(); inferred != "" {
+					args["table_name"] = inferred
+					fmt.Printf("  [fix] list_table_tags table_name 자동 삽입: %s\n", inferred)
+				}
+			}
+		}
+
 		// Literal \n → real newline
 		for k, v := range args {
 			if s, ok := v.(string); ok && strings.Contains(s, "\\n") {
@@ -403,6 +471,28 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 			case []any, map[string]any:
 				data, _ := json.Marshal(c)
 				args["charts"] = string(data)
+			}
+		}
+
+		// charts: table 필드 누락 시 자동 삽입
+		if chartsStr, ok := args["charts"].(string); ok && chartsStr != "" {
+			if inferred := a.inferTableName(); inferred != "" {
+				var chartList []map[string]any
+				if json.Unmarshal([]byte(chartsStr), &chartList) == nil {
+					fixed := false
+					for i := range chartList {
+						t, _ := chartList[i]["table"].(string)
+						if t == "" {
+							chartList[i]["table"] = inferred
+							fixed = true
+						}
+					}
+					if fixed {
+						data, _ := json.Marshal(chartList)
+						args["charts"] = string(data)
+						fmt.Printf("  [fix] charts table 자동 삽입: %s\n", inferred)
+					}
+				}
 			}
 		}
 
@@ -859,13 +949,25 @@ func (a *Agent) countConsecutiveFailures(toolName string) int {
 // captureKnownTags parses list_table_tags result and stores tag names.
 // Result format: "NAME\ntag1\ntag2\n..."
 func (a *Agent) captureKnownTags(result string) {
-	lines := strings.Split(strings.TrimSpace(result), "\n")
 	a.knownTags = nil
-	for _, line := range lines {
-		tag := strings.TrimSpace(line)
-		if tag != "" && tag != "NAME" {
-			a.knownTags = append(a.knownTags, tag)
+	for _, line := range strings.Split(strings.TrimSpace(result), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line == "NAME" {
+			continue
 		}
+		// Format: "[TABLE] tag1, tag2, tag3" (fallback 형식)
+		if strings.HasPrefix(line, "[") {
+			if idx := strings.Index(line, "] "); idx >= 0 {
+				for _, t := range strings.Split(line[idx+2:], ",") {
+					if tag := strings.TrimSpace(t); tag != "" {
+						a.knownTags = append(a.knownTags, tag)
+					}
+				}
+			}
+			continue
+		}
+		// Format: "tag" (기본 형식)
+		a.knownTags = append(a.knownTags, line)
 	}
 	if len(a.knownTags) > 0 {
 		fmt.Printf("  [guard] Known tags captured: %d tags\n", len(a.knownTags))
@@ -995,9 +1097,13 @@ var aliasMap = map[string]map[string]string{
 	"remove_chart_from_dashboard": {
 		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
+		"chart_id": "panel_id", "id": "panel_id",
+		"chart_title": "panel_title", "title": "panel_title", "chart_name": "panel_title",
 	},
 	"update_chart_in_dashboard": {
 		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"chart_id": "panel_id", "id": "panel_id",
+		"chart_title": "panel_title", "title": "panel_title", "chart_name": "panel_title",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 	},
 	"get_dashboard": {
@@ -1018,25 +1124,25 @@ var aliasMap = map[string]map[string]string{
 // Any unrecognized key whose value is a string will be matched
 // to a missing canonical key by simple heuristics (contains check).
 var canonicalKeys = map[string][]string{
-	"save_tql_file":              {"filename", "tql_content"},
-	"execute_tql_script":         {"tql_content"},
-	"validate_chart_tql":         {"tql_script"},
-	"execute_sql_query":          {"sql_query"},
-	"list_table_tags":            {"table_name"},
-	"get_full_document_content":  {"file_identifier"},
-	"get_document_sections":      {"file_identifier"},
-	"extract_code_blocks":        {"file_identifier"},
-	"create_folder":              {"folder_name"},
-	"delete_file":                {"filename"},
-	"create_dashboard":           {"filename"},
+	"save_tql_file":                {"filename", "tql_content"},
+	"execute_tql_script":           {"tql_content"},
+	"validate_chart_tql":           {"tql_script"},
+	"execute_sql_query":            {"sql_query"},
+	"list_table_tags":              {"table_name"},
+	"get_full_document_content":    {"file_identifier"},
+	"get_document_sections":        {"file_identifier"},
+	"extract_code_blocks":          {"file_identifier"},
+	"create_folder":                {"folder_name"},
+	"delete_file":                  {"filename"},
+	"create_dashboard":             {"filename"},
 	"create_dashboard_with_charts": {"filename"},
-	"add_chart_to_dashboard":     {"filename"},
-	"remove_chart_from_dashboard": {"filename"},
-	"update_chart_in_dashboard":  {"filename"},
-	"get_dashboard":              {"filename"},
-	"preview_dashboard":          {"filename"},
-	"delete_dashboard":           {"filename"},
-	"update_connection":          {},
+	"add_chart_to_dashboard":       {"filename"},
+	"remove_chart_from_dashboard":  {"filename"},
+	"update_chart_in_dashboard":    {"filename"},
+	"get_dashboard":                {"filename"},
+	"preview_dashboard":            {"filename"},
+	"delete_dashboard":             {"filename"},
+	"update_connection":            {},
 }
 
 // normalizeArgs renames alias keys to their canonical names in-place.
@@ -1133,4 +1239,3 @@ var knownParams = map[string]bool{
 func isKnownParam(key string) bool {
 	return knownParams[key]
 }
-

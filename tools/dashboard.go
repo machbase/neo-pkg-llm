@@ -265,8 +265,37 @@ func (r *Registry) getDashboard(args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, _ := json.MarshalIndent(raw, "", "  ")
-	return string(data), nil
+
+	panels := getDashPanels(raw)
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Dashboard: %s\nPanels: %d\n", filename, len(panels)))
+	for i, p := range panels {
+		panel, _ := p.(map[string]any)
+		if panel == nil {
+			continue
+		}
+		id, _ := panel["id"].(string)
+		title, _ := panel["title"].(string)
+		pType, _ := panel["type"].(string)
+
+		// Extract tags from blockList
+		var tags []string
+		if bl, ok := panel["blockList"].([]any); ok {
+			for _, b := range bl {
+				if block, ok := b.(map[string]any); ok {
+					if tag, ok := block["tag"].(string); ok && tag != "" {
+						tags = append(tags, tag)
+					}
+				}
+			}
+		}
+		tagStr := ""
+		if len(tags) > 0 {
+			tagStr = fmt.Sprintf(" tags=%s", strings.Join(tags, ","))
+		}
+		result.WriteString(fmt.Sprintf("  %d. [%s] \"%s\" (id: %s)%s\n", i+1, pType, title, id, tagStr))
+	}
+	return strings.TrimSpace(result.String()), nil
 }
 
 func (r *Registry) createDashboard(args map[string]any) (string, error) {
