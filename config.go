@@ -18,10 +18,10 @@ type ModelEntry struct {
 }
 
 type MachbaseConfig struct {
-	Host    string `json:"host"`
-	Port    string `json:"port"`
-	User    string `json:"user"`
-	WorkDir string `json:"work_dir"`
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
 }
 
 type APIProviderConfig struct {
@@ -65,9 +65,10 @@ func defaultConfig() *Config {
 			Port: "8884",
 		},
 		Machbase: MachbaseConfig{
-			Host: "127.0.0.1",
-			Port: "5654",
-			User: "sys",
+			Host:     "127.0.0.1",
+			Port:     "5654",
+			User:     "sys",
+			Password: "manager",
 		},
 		Claude: APIProviderConfig{
 			APIKey: "",
@@ -145,8 +146,8 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("MACHBASE_USER"); v != "" {
 		c.Machbase.User = v
 	}
-	if v := os.Getenv("MACHBASE_WORK_DIR"); v != "" {
-		c.Machbase.WorkDir = v
+	if v := os.Getenv("MACHBASE_PASSWORD"); v != "" {
+		c.Machbase.Password = v
 	}
 	if v := os.Getenv("LLM_PROVIDER"); v != "" {
 		c.Provider = v

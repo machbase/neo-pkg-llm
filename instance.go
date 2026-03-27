@@ -29,7 +29,7 @@ type Instance struct {
 
 // NewInstance creates and initializes an Instance from a Config.
 func NewInstance(name string, cfg *Config) (*Instance, error) {
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
 
 	llmClient, err := newLLMSafe(cfg)
@@ -118,7 +118,7 @@ func (inst *Instance) restartLLM() error {
 		return err
 	}
 	inst.mu.Lock()
-	inst.mc = machbase.NewClient(inst.cfg.MachbaseURL(), inst.cfg.Machbase.User, inst.cfg.Machbase.WorkDir)
+	inst.mc = machbase.NewClient(inst.cfg.MachbaseURL(), inst.cfg.Machbase.User, inst.cfg.Machbase.Password)
 	inst.registry = tools.NewRegistry(inst.mc)
 	inst.llmClient = newClient
 	inst.mu.Unlock()

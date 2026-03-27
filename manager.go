@@ -326,8 +326,8 @@ func validateConfig(c *Config) string {
 		return "machbase.port is required"
 	case c.Machbase.User == "":
 		return "machbase.user is required"
-	case c.Machbase.WorkDir == "":
-		return "machbase.work_dir is required"
+	case c.Machbase.Password == "":
+		return "machbase.password is required"
 	}
 	return ""
 }

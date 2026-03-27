@@ -41,7 +41,7 @@ func setupConfigsHandler(t *testing.T) (http.Handler, string) {
 func sampleConfigBody(user string) string {
 	return `{
 		"server": { "port": "8884" },
-		"machbase": { "host": "192.168.1.238", "port": "5654", "user": "` + user + `", "work_dir": "/tmp/neo" },
+		"machbase": { "host": "192.168.1.238", "port": "5654", "user": "` + user + `", "password": "manager" },
 		"claude": { "api_key": "sk-ant-test", "models": [{ "name": "haiku", "model_id": "claude-haiku-4-5-20251001" }] },
 		"chatgpt": { "api_key": "sk-proj-test", "models": [{ "name": "gpt-4o-mini" }] },
 		"gemini": { "api_key": "AIza-test", "models": [{ "name": "gemini-flash", "model_id": "gemini-flash-lite" }] },
@@ -88,19 +88,19 @@ func TestPostConfigs_RequiredFields(t *testing.T) {
 	}{
 		{
 			"missing machbase.host",
-			`{"server":{"port":"8884"},"machbase":{"host":"","port":"5654","user":"u","work_dir":"/tmp/neo"}}`,
+			`{"server":{"port":"8884"},"machbase":{"host":"","port":"5654","user":"u","password":"manager"}}`,
 		},
 		{
 			"missing machbase.port",
-			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"","user":"u","work_dir":"/tmp/neo"}}`,
+			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"","user":"u","password":"manager"}}`,
 		},
 		{
 			"missing machbase.user",
-			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"","work_dir":"/tmp/neo"}}`,
+			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"","password":"manager"}}`,
 		},
 		{
-			"missing machbase.work_dir",
-			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"u","work_dir":""}}`,
+			"missing machbase.password",
+			`{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"u","password":""}}`,
 		},
 	}
 
@@ -127,7 +127,7 @@ func TestPostConfigs_InvalidUser_PathTraversal(t *testing.T) {
 	handler, _ := setupConfigsHandler(t)
 
 	for _, user := range []string{"../evil", "foo/bar"} {
-		body := `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"` + user + `","work_dir":"/tmp/neo"}}`
+		body := `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"` + user + `","password":"manager"}}`
 		req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -270,7 +270,7 @@ func TestGetConfigByName_OverwriteOnRepost(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	// Repost with changed host
-	updated := `{"server":{"port":"8884"},"machbase":{"host":"10.0.0.1","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`
+	updated := `{"server":{"port":"8884"},"machbase":{"host":"10.0.0.1","port":"5654","user":"alice","password":"manager"}}`
 	req = httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(updated))
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
@@ -292,7 +292,7 @@ func TestPutConfigByName_Success(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	// Update
-	updated := `{"server":{"port":"9999"},"machbase":{"host":"10.0.0.1","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`
+	updated := `{"server":{"port":"9999"},"machbase":{"host":"10.0.0.1","port":"5654","user":"alice","password":"manager"}}`
 	req = httptest.NewRequest(http.MethodPut, "/api/configs/alice", strings.NewReader(updated))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -330,7 +330,7 @@ func TestPutConfigByName_Success(t *testing.T) {
 func TestPutConfigByName_NotFound(t *testing.T) {
 	handler, _ := setupConfigsHandler(t)
 
-	body := `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"nobody","work_dir":"/tmp/neo"}}`
+	body := `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"nobody","password":"manager"}}`
 	req := httptest.NewRequest(http.MethodPut, "/api/configs/nobody", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -355,9 +355,9 @@ func TestPutConfigByName_RequiredFields(t *testing.T) {
 		desc string
 		body string
 	}{
-		{"missing machbase.host", `{"server":{"port":"8884"},"machbase":{"host":"","port":"5654","user":"alice","work_dir":"/tmp/neo"}}`},
-		{"missing machbase.user", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"","work_dir":"/tmp/neo"}}`},
-		{"missing machbase.work_dir", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"alice","work_dir":""}}`},
+		{"missing machbase.host", `{"server":{"port":"8884"},"machbase":{"host":"","port":"5654","user":"alice","password":"manager"}}`},
+		{"missing machbase.user", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"","password":"manager"}}`},
+		{"missing machbase.password", `{"server":{"port":"8884"},"machbase":{"host":"h","port":"5654","user":"alice","password":""}}`},
 	}
 
 	for _, tc := range cases {
@@ -379,7 +379,7 @@ func TestPutConfigByName_RenameOnUserChange(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	// Change machbase.user to bob
-	updated := `{"server":{"port":"8884"},"machbase":{"host":"192.168.1.238","port":"5654","user":"bob","work_dir":"/tmp/neo"}}`
+	updated := `{"server":{"port":"8884"},"machbase":{"host":"192.168.1.238","port":"5654","user":"bob","password":"manager"}}`
 	req = httptest.NewRequest(http.MethodPut, "/api/configs/alice", strings.NewReader(updated))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)

@@ -121,7 +121,7 @@ func newLLM(cfg *Config) llm.LLMProvider {
 // --- MCP Server Mode (stdio JSON-RPC) ---
 
 func runMCP(cfg *Config) {
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
 
 	server := mcp.NewServer(registry)
@@ -136,7 +136,7 @@ func runWS(cfg *Config, neoURL string) {
 	if neoURL == "" {
 		logger.Fatalf("--neo-ws-url is required for ws mode")
 	}
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
 
 	llmClient, err := newLLMSafe(cfg)
@@ -154,7 +154,7 @@ func runWS(cfg *Config, neoURL string) {
 // --- CLI Mode ---
 
 func runCLI(cfg *Config) {
-	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.WorkDir)
+	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
 	llmClient := newLLM(cfg)
 
