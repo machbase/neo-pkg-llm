@@ -386,6 +386,7 @@ func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolD
 
 	// Parse SSE stream
 	var contentBlocks []ContentBlock
+	var inputJSONBuf []string // accumulates partial_json for current tool_use block
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
@@ -414,6 +415,7 @@ func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolD
 					cb.ID, _ = block["id"].(string)
 					cb.Name, _ = block["name"].(string)
 					cb.Input = map[string]any{}
+					inputJSONBuf = inputJSONBuf[:0]
 				}
 				contentBlocks = append(contentBlocks, cb)
 			}
@@ -434,7 +436,20 @@ func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolD
 					}
 				case "input_json_delta":
 					partial, _ := delta["partial_json"].(string)
-					_ = partial // accumulate for tool input
+					inputJSONBuf = append(inputJSONBuf, partial)
+				}
+			}
+
+		case "content_block_stop":
+			if len(contentBlocks) > 0 {
+				idx := len(contentBlocks) - 1
+				if contentBlocks[idx].Type == "tool_use" && len(inputJSONBuf) > 0 {
+					full := strings.Join(inputJSONBuf, "")
+					var parsed map[string]any
+					if json.Unmarshal([]byte(full), &parsed) == nil {
+						contentBlocks[idx].Input = parsed
+					}
+					inputJSONBuf = inputJSONBuf[:0]
 				}
 			}
 
