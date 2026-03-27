@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set +e
 
-if [ -e ./scripts/pid ]
+if [ -e ./.backend/pid ]
 then
-    kill $(cat ./scripts/pid) 2>/dev/null || true
+    kill $(cat ./.backend/pid) 2>/dev/null || true
 fi

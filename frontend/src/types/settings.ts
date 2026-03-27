@@ -6,7 +6,7 @@ export interface MachbaseConfig {
     host: string;
     port: string;
     user: string;
-    work_dir: string;
+    password: string;
 }
 
 export interface ModelEntry {
@@ -54,7 +54,7 @@ export interface ApiResponse<T> {
 export function defaultConfig(): AppConfig {
     return {
         server: { port: "8884" },
-        machbase: { host: "", port: "", user: "", work_dir: "" },
+        machbase: { host: "", port: "", user: "", password: "" },
         claude: { api_key: "", models: [] },
         chatgpt: { api_key: "", models: [] },
         gemini: { api_key: "", models: [] },

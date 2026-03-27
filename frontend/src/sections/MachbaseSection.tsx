@@ -32,8 +32,8 @@ export function MachbaseSection({ config, onChange }: Props) {
           <input id="mb-user" type="text" placeholder="sys" value={config.user} onChange={set('user')} />
         </div>
         <div className="field-row">
-          <label htmlFor="mb-work-dir">Work Directory</label>
-          <input id="mb-work-dir" type="text" placeholder="C:/path/to/machbase-neo" value={config.work_dir} onChange={set('work_dir')} />
+          <label htmlFor="mb-password">Password</label>
+          <input id="mb-password" type="password" placeholder="••••••••" value={config.password} onChange={set('password')} />
         </div>
       </div>
     </div>
