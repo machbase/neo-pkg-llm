@@ -112,6 +112,7 @@ func (r *Registry) registerAll() {
 	r.registerDashboardTools()
 	r.registerDocTools()
 	r.registerUtilTools()
+	r.registerTimerTools()
 }
 
 // Helper to extract string from args with default.
