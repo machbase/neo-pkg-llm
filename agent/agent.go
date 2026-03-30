@@ -211,7 +211,7 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 			a.initMessages(query)
 		}
 		LoadTemplates()
-		ch <- Event{Type: EventStatus, Content: "에이전트 초기화 완료"}
+		ch <- Event{Type: EventStatus, Content: "답변 생성중..."}
 
 		step := 0
 		for step < a.maxSteps {
