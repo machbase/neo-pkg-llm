@@ -45,26 +45,18 @@ func (r *Registry) registerTimerTools() {
 		Name: "add_timer",
 		Description: `Create a new timer (scheduler) in Machbase Neo that runs a TQL script on a schedule.
 
-Schedule formats: CRON ("0 30 * * * *"), interval ("@every 5s", "@every 10ms"), or predefined ("@daily", "@hourly").
-Valid time units for @every: "ms", "s", "m", "h".
-
 NAMING RULE: Use the SAME name for timer, table, and TQL folder. Example: if the user asks for "sensor data", use NAME=SENSOR_DATA everywhere: table=SENSOR_DATA, TQL path=SENSOR_DATA/SENSOR_DATA.tql, timer=SENSOR_DATA. Derive the name from what the user requests.
 
 IMPORTANT workflow - you MUST follow these steps in order:
-1) Create the target TAG TABLE using execute_sql_query.
+1) get_full_document_content로 'utilities/timer-templates.md' 문서를 먼저 조회하세요. 스크립트 규칙, 스케줄 옵션, 예제가 포함되어 있습니다.
+2) Create the target TAG TABLE using execute_sql_query.
    TAG TABLE syntax: CREATE TAG TABLE IF NOT EXISTS NAME (name VARCHAR(80) PRIMARY KEY, time DATETIME BASETIME, value DOUBLE SUMMARIZED) WITH ROLLUP
-2) Create the TQL script using save_tql_file. TQL is NOT SQL. Never use INSERT INTO, SELECT, or any SQL statements in TQL files.
-   TQL uses a pipeline: SRC -> MAP -> SINK. Only ONE SRC and ONE SINK (INSERT) per file.
-   Data generation TQL example (100 records/sec for one sensor, timer @every 1s):
-   FAKE( oscillator( freq(3, 1.0), range("now-1s", "1s", "10ms") ))
-   PUSHVALUE(0, 'sensor-01')
-   INSERT("name", "time", "value", table("NAME"))
-   For multiple sensors, create separate TQL files and timers per sensor.
+3) Create the TQL script using save_tql_file (1번 문서의 패턴/예제를 참고하여 작성).
    Save as: NAME/NAME.tql
-3) Call add_timer with name=NAME, path=NAME/NAME.tql
-4) Call start_timer to begin execution. Creating a timer does NOT start it automatically.
+4) Call add_timer with name=NAME, path=NAME/NAME.tql
+5) Call start_timer to begin execution. Creating a timer does NOT start it automatically.
 
-To clean up: stop_timer(NAME) -> delete_timer(NAME) -> delete TQL folder(NAME/) -> DROP TABLE NAME CASCADE;`,
+To clean up: stop_timer(NAME) -> delete_timer(NAME) -> delete_file(NAME/NAME.tql) -> delete_file(NAME/) -> execute_sql_query(DROP TABLE NAME CASCADE);`,
 		Parameters: ToolParameters{
 			Type: "object",
 			Properties: map[string]ToolProperty{
@@ -129,8 +121,26 @@ To clean up: stop_timer(NAME) -> delete_timer(NAME) -> delete TQL folder(NAME/) 
 				return "", fmt.Errorf("name is required")
 			}
 
+			upperName := strings.ToUpper(name)
+
+			// Check if already running
+			infoData, err := r.client.WebGet("/web/api/timers/" + upperName)
+			if err == nil {
+				var infoResp struct {
+					Success bool `json:"success"`
+					Data    []struct {
+						State string `json:"state"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(infoData, &infoResp) == nil && infoResp.Success && len(infoResp.Data) > 0 {
+					if infoResp.Data[0].State == "RUNNING" {
+						return fmt.Sprintf("Timer '%s' is already running.", name), nil
+					}
+				}
+			}
+
 			payload := map[string]any{"state": "start"}
-			data, err := r.client.WebPost("/web/api/timers/"+strings.ToUpper(name)+"/state", payload)
+			data, err := r.client.WebPost("/web/api/timers/"+upperName+"/state", payload)
 			if err != nil {
 				return "", fmt.Errorf("start timer failed: %w", err)
 			}

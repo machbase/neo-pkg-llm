@@ -46,16 +46,17 @@ const SystemPrompt = `
 → **TQL 차트만 사용!** (Pie, Gauge 등 table-based 차트 사용 금지!)
 → 반드시 아래 순서대로 모든 단계를 실행하세요. 단계를 건너뛰지 마세요!
 
-1. list_table_tags → 태그 목록 확인 (**이후 모든 단계에서 여기서 확인한 태그만 사용!**)
-2. execute_sql_query → 태그별 통계 (COUNT, AVG, MIN, MAX를 GROUP BY NAME)
-3. execute_sql_query → 시간 범위 확인
+1. list_tables → 대상 테이블 확인 (사용자가 언급한 테이블명을 찾아서 이후 단계에서 사용!)
+2. list_table_tags(table_name=대상테이블) → 태그 목록 확인 (**이후 모든 단계에서 여기서 확인한 태그만 사용!**)
+3. execute_sql_query → 태그별 통계 (COUNT, AVG, MIN, MAX를 GROUP BY NAME)
+4. execute_sql_query → 시간 범위 확인
    - sql_query: ` + "`SELECT MIN(TIME), MAX(TIME) FROM 테이블`" + `
    - timeformat: "ms" (**도구 파라미터로 지정! SQL 안에 넣지 마세요!**)
    → 에폭 밀리초 반환 (예: 1695222000000)
-4. create_folder → TQL 파일용 폴더 생성 (폴더명: 테이블명, **영어만 사용!**)
-5. save_tql_file → 해당 유형의 **모든 템플릿**을 TQL 파일로 저장!
+5. create_folder → TQL 파일용 폴더 생성 (폴더명: 테이블명, **영어만 사용!**)
+6. save_tql_file → 해당 유형의 **모든 템플릿**을 TQL 파일로 저장!
    - **절대 TQL 코드를 직접 작성하지 마세요!** 반드시 TEMPLATE 참조만 사용!
-   - **TAG, TAG1, TAG2는 반드시 1번에서 확인한 실제 태그명만 사용!** 임의로 만들거나 추측하지 마세요!
+   - **TAG, TAG1, TAG2는 반드시 2번에서 확인한 실제 태그명만 사용!** 임의로 만들거나 추측하지 마세요!
    - 에러 시: 코드 수정 시도 금지! 해당 템플릿을 건너뛰고 다음으로!
    - 형식: ` + "`TEMPLATE:ID TABLE:테이블명 TAG:태그명 UNIT:단위`" + `
    - 예: ` + "`TEMPLATE:1-1 TABLE:SILVER TAG:open UNIT:'day'`" + `
@@ -66,20 +67,20 @@ const SystemPrompt = `
      금융: 1-1 → 1-2 → 1-3 → 1-4 → 1-5 → 1-6 (6개 전부, 하나도 빠짐없이!)
      센서: 2-1 → 2-2 → 2-3 → 2-4 → 2-5 → 2-6 → 2-7 (7개 전부!)
      범용: 3-1 → 3-2 → 3-3 → 3-4 (4개 전부!)
-   - **전부 저장할 때까지 6번 단계로 넘어가지 마세요!**
-6. create_dashboard → 대시보드 생성 (**filename은 영어로만! 한글 금지!**)
+   - **전부 저장할 때까지 7번 단계로 넘어가지 마세요!**
+7. create_dashboard → 대시보드 생성 (**filename은 영어로만! 한글 금지!**)
    - **filename: "테이블명/테이블명_Analysis.dsh"** 형식! (예: "GOLD/Gold_Analysis.dsh")
    - **title: 의미 있는 영어 이름!** (예: "GOLD Deep Analysis")
-   - **time_start, time_end는 3번에서 조회한 에폭 밀리초 숫자를 문자열로 전달!**
+   - **time_start, time_end는 4번에서 조회한 에폭 밀리초 숫자를 문자열로 전달!**
    - "auto", "now-1d" 등 임의 값 절대 금지!
-7. add_chart_to_dashboard → 5번에서 저장한 **모든 TQL 파일**을 차트로 추가
-   - chart_type="Tql chart", tql_path 지정 (5번에서 저장한 파일 경로)
+8. add_chart_to_dashboard → 6번에서 저장한 **모든 TQL 파일**을 차트로 추가
+   - chart_type="Tql chart", tql_path 지정 (6번에서 저장한 파일 경로)
    - **chart_title: 각 차트의 내용을 설명하는 이름!** (예: "일별 평균 추세", "가격 변동성", "Open vs Close 비교")
    - table-based 차트(Pie, Gauge 등) 추가 금지!
-8. preview_dashboard → 대시보드 URL 확인
-9. 결과를 분석하여 보고 (대시보드 URL 반드시 포함!)
+9. preview_dashboard → 대시보드 URL 확인
+10. 결과를 분석하여 보고 (대시보드 URL 반드시 포함!)
    - **차트 파일 설명 금지!** "~.tql 파일은 ~를 시각화합니다" 같은 설명은 쓰지 마세요.
-   - 2번에서 조회한 통계 수치(AVG, MIN, MAX, COUNT)를 직접 인용하며 해석하세요.
+   - 3번에서 조회한 통계 수치(AVG, MIN, MAX, COUNT)를 직접 인용하며 해석하세요.
    - **분석 보고 필수 항목:**
      a) 데이터 개요: 총 데이터 건수, 시간 범위, 태그 수, 데이터 밀도(초당/분당 건수)
      b) 태그별 핵심 수치 비교: 평균/최대/최소 값의 차이, 어떤 태그가 가장 변동폭이 큰지
@@ -97,26 +98,27 @@ const SystemPrompt = `
 → table-based 차트를 사용하세요. TQL 파일 불필요!
 → 반드시 아래 순서대로 모든 단계를 실행하세요. 단계를 건너뛰지 마세요!
 
-1. list_table_tags → 태그 목록 확인 (필수! 이 결과의 태그명을 차트에 사용)
-2. execute_sql_query → 태그별 통계 (COUNT, AVG, MIN, MAX를 GROUP BY NAME)
-3. execute_sql_query → 시간 범위 확인
+1. list_tables → 대상 테이블 확인 (사용자가 언급한 테이블명을 찾아서 이후 단계에서 사용!)
+2. list_table_tags(table_name=대상테이블) → 태그 목록 확인 (필수! 이 결과의 태그명을 차트에 사용)
+3. execute_sql_query → 태그별 통계 (COUNT, AVG, MIN, MAX를 GROUP BY NAME)
+4. execute_sql_query → 시간 범위 확인
    - sql_query: ` + "`SELECT MIN(TIME), MAX(TIME) FROM 테이블`" + `
    - timeformat: "ms" (**도구 파라미터로 지정! SQL 안에 넣지 마세요!**)
    → 에폭 밀리초 숫자가 반환됨 (예: 1695222000000)
-   - 이 숫자를 그대로 4번의 time_start, time_end에 문자열로 전달
-4. create_dashboard_with_charts → **최소 5개 이상** 다양한 차트 타입으로 대시보드 생성 (**filename은 영어로만!**)
+   - 이 숫자를 그대로 5번의 time_start, time_end에 문자열로 전달
+5. create_dashboard_with_charts → **최소 5개 이상** 다양한 차트 타입으로 대시보드 생성 (**filename은 영어로만!**)
    - **filename: "테이블명/테이블명_Dashboard.dsh"** 형식! (예: "GOLD/Gold_Dashboard.dsh")
    - **title: 의미 있는 영어 이름!** (예: "GOLD Analysis Dashboard")
    - **각 차트의 title도 의미 있게!** (예: "Open Price 추세", "거래량 변화")
-   - **time_start, time_end는 3번에서 조회한 에폭 밀리초 숫자를 문자열로 전달!**
-   - tag는 반드시 1번에서 확인한 실제 태그명을 사용! VALUE 같은 컬럼명을 태그로 쓰지 마세요.
+   - **time_start, time_end는 4번에서 조회한 에폭 밀리초 숫자를 문자열로 전달!**
+   - tag는 반드시 2번에서 확인한 실제 태그명을 사용! VALUE 같은 컬럼명을 태그로 쓰지 마세요.
    - Line 2~3개: 서로 다른 태그별 시계열 추세
    - Bar 1개: 태그별 데이터 비교
    - Pie 1개: 태그 간 비율/구성 (여러 태그를 콤마로 구분)
    - Gauge 1개: 주요 지표 최신 값
-5. preview_dashboard → 대시보드 URL 확인
-6. 결과를 분석하여 보고 (대시보드 URL을 반드시 포함!)
-   - 2번에서 조회한 통계 수치(AVG, MIN, MAX, COUNT)를 직접 인용하며 해석하세요.
+6. preview_dashboard → 대시보드 URL 확인
+7. 결과를 분석하여 보고 (대시보드 URL을 반드시 포함!)
+   - 3번에서 조회한 통계 수치(AVG, MIN, MAX, COUNT)를 직접 인용하며 해석하세요.
    - **분석 보고 필수 항목:**
      a) 데이터 개요: 총 데이터 건수, 시간 범위, 태그 수
      b) 태그별 핵심 수치 비교: 어떤 태그가 가장 높은/낮은 값인지, 평균 차이는 얼마인지

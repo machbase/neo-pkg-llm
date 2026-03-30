@@ -35,7 +35,6 @@ func (r *Registry) registerSQLTools() {
 			Type: "object",
 			Properties: map[string]ToolProperty{
 				"table_name": {Type: "string", Description: "Table name"},
-				"limit":      {Type: "integer", Description: "Max tags to return", Default: 100},
 			},
 			Required: []string{"table_name"},
 		},
@@ -58,7 +57,7 @@ func (r *Registry) registerSQLTools() {
 					if tbl == "" || tbl == "NAME" {
 						continue
 					}
-					tagsSQL := fmt.Sprintf("SELECT DISTINCT NAME FROM %s ORDER BY NAME LIMIT 100", tbl)
+					tagsSQL := fmt.Sprintf("SELECT DISTINCT NAME FROM %s ORDER BY NAME", tbl)
 					tags, err := r.client.QuerySQL(tagsSQL, "", "", "csv")
 					if err != nil {
 						continue
@@ -77,10 +76,9 @@ func (r *Registry) registerSQLTools() {
 			if strings.ContainsAny(table, " \t\n\r") {
 				return "", fmt.Errorf("invalid table name")
 			}
-			limit := argInt(args, "limit", 100)
 			sql := fmt.Sprintf(
-				"SELECT DISTINCT NAME FROM %s ORDER BY NAME LIMIT %d",
-				table, limit,
+				"SELECT DISTINCT NAME FROM %s ORDER BY NAME",
+				table,
 			)
 			result, err := r.client.QuerySQL(sql, "", "", "csv")
 			if err != nil {

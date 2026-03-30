@@ -314,7 +314,11 @@ func (r *Registry) createDashboard(args map[string]any) (string, error) {
 	ensureParentFolder(r.client, filename)
 
 	dshFile := buildDSHFile(filename, title, timeStart, timeEnd, nil)
-	return r.saveDashFile(filename, dshFile)
+	result, err := r.saveDashFile(filename, dshFile)
+	if err != nil {
+		return result, err
+	}
+	return result + "\n\n주의: 대시보드에 차트가 아직 없습니다. add_chart_to_dashboard를 호출하여 TQL 차트를 추가하세요. 차트 추가가 모두 완료된 후에 분석 보고를 작성하세요.", nil
 }
 
 func (r *Registry) createDashboardWithCharts(args map[string]any) (string, error) {
@@ -637,7 +641,9 @@ func (r *Registry) saveDashFile(filename string, content map[string]any) (string
 	if err := r.client.WriteFile(filename, dashData); err != nil {
 		return "", fmt.Errorf("save dashboard failed: %w", err)
 	}
-	return fmt.Sprintf("Dashboard saved: %s", filename), nil
+	boardPath := strings.TrimSuffix(filename, ".dsh")
+	dashURL := r.client.BaseURL + "/web/ui/board/" + boardPath
+	return fmt.Sprintf("Dashboard saved: %s\nDashboard URL: %s", filename, dashURL), nil
 }
 
 // getDashPanels extracts panels from the dashboard.panels path.

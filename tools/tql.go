@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -91,6 +92,14 @@ func (r *Registry) registerTQLTools() {
 
 			isTQL := strings.HasSuffix(strings.ToLower(filename), ".tql")
 
+			// Check for invalid ROLLUP units before execution
+			if isTQL {
+				lower := strings.ToLower(tqlContent)
+				if strings.Contains(lower, "rollup('ms'") || strings.Contains(lower, "rollup(\"ms\"") {
+					return "TQL validation failed (not saved): ROLLUP('ms')는 지원하지 않습니다. 최소 단위는 'sec'입니다. 지원 단위: 'sec', 'min', 'hour', 'day', 'week', 'month'", nil
+				}
+			}
+
 			// Validate TQL by execution first
 			if isTQL {
 				testResult, err := r.client.ExecuteTQL(tqlContent, 30*time.Second)
@@ -101,6 +110,25 @@ func (r *Registry) registerTQLTools() {
 				if trimmed == "" {
 					return "TQL validation failed: execution returned empty result (not saved)", nil
 				}
+
+				// Check for ROLLUP column error → auto-create rollup and retry
+				if strings.Contains(trimmed, "MACH-ERR 2264") || strings.Contains(trimmed, "not a ROLLUP column") {
+					tableName := extractTableFromTQL(tqlContent)
+					if tableName != "" {
+						if created := r.createRollupForTable(tableName); created {
+							// Retry execution after rollup creation
+							testResult, err = r.client.ExecuteTQL(tqlContent, 30*time.Second)
+							if err != nil {
+								return fmt.Sprintf("TQL validation failed after rollup creation (not saved): %v", err), nil
+							}
+							trimmed = strings.TrimSpace(testResult)
+							if trimmed == "" {
+								return "TQL validation failed: execution returned empty result after rollup creation (not saved)", nil
+							}
+						}
+					}
+				}
+
 				if strings.Contains(strings.ToLower(trimmed), "error") {
 					var resp map[string]any
 					if json.Unmarshal([]byte(trimmed), &resp) == nil {
@@ -118,4 +146,54 @@ func (r *Registry) registerTQLTools() {
 			return fmt.Sprintf("File saved successfully: %s", filename), nil
 		},
 	})
+}
+
+// extractTableFromTQL extracts the table name from "FROM tablename" in TQL SQL content.
+func extractTableFromTQL(tql string) string {
+	re := regexp.MustCompile(`(?i)FROM\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	m := re.FindStringSubmatch(tql)
+	if len(m) > 1 {
+		return strings.ToUpper(m[1])
+	}
+	return ""
+}
+
+// createRollupForTable creates SEC/MIN/HOUR custom rollup tables and forces aggregation.
+// Returns true if rollup was created successfully.
+func (r *Registry) createRollupForTable(table string) bool {
+	upper := strings.ToUpper(table)
+
+	// Check if rollup already exists
+	checkSQL := fmt.Sprintf("SELECT NAME FROM M$SYS_TABLES WHERE NAME LIKE '_%s_ROLLUP_%%'", upper)
+	result, err := r.client.QuerySQL(checkSQL, "", "", "csv")
+	if err == nil && strings.Contains(result, "_ROLLUP_") {
+		return false // rollup already exists
+	}
+
+	type rollupStep struct {
+		name string
+		sql  string
+	}
+
+	secName := fmt.Sprintf("_%s_ROLLUP_SEC", upper)
+	minName := fmt.Sprintf("_%s_ROLLUP_MIN", upper)
+	hourName := fmt.Sprintf("_%s_ROLLUP_HOUR", upper)
+
+	steps := []rollupStep{
+		{secName, fmt.Sprintf("CREATE ROLLUP %s ON %s(VALUE) INTERVAL 1 SEC", secName, upper)},
+		{minName, fmt.Sprintf("CREATE ROLLUP %s ON %s INTERVAL 1 MIN", minName, secName)},
+		{hourName, fmt.Sprintf("CREATE ROLLUP %s ON %s INTERVAL 1 HOUR", hourName, minName)},
+	}
+
+	for _, s := range steps {
+		r.client.QuerySQL(s.sql, "", "", "csv")
+	}
+
+	// Force aggregation
+	for _, name := range []string{secName, minName, hourName} {
+		r.client.QuerySQL(fmt.Sprintf("EXEC ROLLUP_FORCE('%s')", name), "", "", "csv")
+	}
+
+	fmt.Printf("[TQL] Auto-created rollup for table %s: %s, %s, %s\n", upper, secName, minName, hourName)
+	return true
 }
