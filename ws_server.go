@@ -418,7 +418,16 @@ func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 				emit("stream_block_stop", nil)
 				inStreamBlock = false
 			}
-			toolMsg := fmt.Sprintf("\n🛠️ Calling tool: %s\n", event.Name)
+			toolMsg := fmt.Sprintf("\n🛠️ Calling tool: **%s**\n", event.Name)
+			if len(event.Args) > 0 {
+				for k, v := range event.Args {
+					vs := fmt.Sprintf("%v", v)
+					if len(vs) > 500 {
+						vs = vs[:500] + "..."
+					}
+					toolMsg += fmt.Sprintf("  - `%s`: `%s`\n", k, vs)
+				}
+			}
 			emitTextBlock(toolMsg)
 
 		case "tool_result":

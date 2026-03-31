@@ -11,6 +11,7 @@ type Tool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Parameters  ToolParameters `json:"parameters"`
+	Internal    bool           `json:"-"` // Internal tools are not exposed to the LLM
 	Fn          func(args map[string]any) (string, error) `json:"-"`
 }
 
@@ -91,10 +92,14 @@ func (r *Registry) ExecuteMap(name string, args map[string]any) (string, error) 
 	return tool.Fn(args)
 }
 
-// AllToolDefs returns all tool definitions in OpenAI-compatible format.
+// AllToolDefs returns tool definitions in OpenAI-compatible format.
+// Internal tools are excluded from the list exposed to the LLM.
 func (r *Registry) AllToolDefs() []map[string]any {
 	defs := make([]map[string]any, 0, len(r.order))
 	for _, name := range r.order {
+		if r.tools[name].Internal {
+			continue
+		}
 		defs = append(defs, r.tools[name].ToolDef())
 	}
 	return defs

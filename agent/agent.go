@@ -336,11 +336,11 @@ func isAdvancedQuery(query string) bool {
 }
 
 func (a *Agent) initMessages(query string) {
-	// Get doc list for system prompt enrichment
+	// Inject document catalog into system prompt
 	docList, _ := a.registry.ExecuteMap("list_available_documents", nil)
 	systemPrompt := llm.SystemPrompt
 	if docList != "" {
-		systemPrompt += "\n\n## 사용 가능한 문서 목록\n" + docList + "\n"
+		systemPrompt += "\n\n## 문서 카탈로그 (경로 | 한국어 제목 | 키워드)\n" + docList + "\n"
 	}
 
 	// Detect analysis type and set agent mode

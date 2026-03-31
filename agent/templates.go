@@ -94,6 +94,12 @@ func ExpandTemplate(templateID string, params map[string]string) (string, error)
 		}
 	}
 
+	// Normalize UNIT: strip quotes then re-add (LLM may send 'sec' or sec)
+	if v, ok := params["UNIT"]; ok {
+		v = strings.Trim(v, "'\"")
+		params["UNIT"] = "'" + v + "'"
+	}
+
 	for key, val := range params {
 		code = strings.ReplaceAll(code, "{"+key+"}", val)
 	}

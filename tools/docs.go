@@ -1,11 +1,13 @@
 package tools
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // docsBasePath points to the neo/ documentation directory.
@@ -35,12 +37,67 @@ func init() {
 	docsBasePath = "neo"
 }
 
+// catalogEntry holds Korean title and keywords for a document.
+type catalogEntry struct {
+	TitleKo  string
+	Keywords string
+}
+
+var (
+	docCatalog     map[string]catalogEntry
+	docCatalogOnce sync.Once
+)
+
+// loadCatalog parses neo/catalog.md markdown table into a map.
+func loadCatalog() map[string]catalogEntry {
+	docCatalogOnce.Do(func() {
+		docCatalog = make(map[string]catalogEntry)
+		catalogPath := filepath.Join(docsBasePath, "catalog.md")
+		f, err := os.Open(catalogPath)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+
+		scanner := bufio.NewScanner(f)
+		lineNum := 0
+		for scanner.Scan() {
+			lineNum++
+			line := scanner.Text()
+			// Skip header and separator lines
+			if lineNum <= 3 {
+				continue
+			}
+			// Parse table row: | path | title_ko | keywords |
+			parts := strings.Split(line, "|")
+			if len(parts) < 4 {
+				continue
+			}
+			path := strings.TrimSpace(parts[1])
+			titleKo := strings.TrimSpace(parts[2])
+			keywords := strings.TrimSpace(parts[3])
+			if path == "" || path == "path" {
+				continue
+			}
+			docCatalog[path] = catalogEntry{TitleKo: titleKo, Keywords: keywords}
+		}
+	})
+	return docCatalog
+}
+
 func (r *Registry) registerDocTools() {
 	r.register(&Tool{
 		Name:        "list_available_documents",
-		Description: "List all available Machbase Neo documentation files.",
-		Parameters:  ToolParameters{Type: "object", Properties: map[string]ToolProperty{}},
+		Description: "Search documentation by keyword. Returns matching documents with exact file paths. Use the returned path as-is for get_full_document_content.",
+		Parameters: ToolParameters{
+			Type: "object",
+			Properties: map[string]ToolProperty{
+				"query": {Type: "string", Description: "Search keyword (e.g. 'PIVOT', 'rollup', '백업')"},
+			},
+		},
 		Fn: func(args map[string]any) (string, error) {
+			query := strings.ToLower(argStr(args, "query", ""))
+			catalog := loadCatalog()
 			var docs []string
 			err := filepath.Walk(docsBasePath, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
@@ -48,7 +105,28 @@ func (r *Registry) registerDocTools() {
 				}
 				if !info.IsDir() && strings.HasSuffix(path, ".md") {
 					rel, _ := filepath.Rel(docsBasePath, path)
-					docs = append(docs, strings.ReplaceAll(rel, "\\", "/"))
+					rel = strings.ReplaceAll(rel, "\\", "/")
+					if rel == "catalog.md" {
+						return nil
+					}
+					entry, hasCatalog := catalog[rel]
+					line := rel
+					if hasCatalog {
+						line = fmt.Sprintf("%s | %s | %s", rel, entry.TitleKo, entry.Keywords)
+					}
+					// If no query, return all (internal use)
+					if query == "" {
+						docs = append(docs, line)
+						return nil
+					}
+					// Search: match query against path, title, keywords
+					searchTarget := strings.ToLower(rel)
+					if hasCatalog {
+						searchTarget = strings.ToLower(rel + " " + entry.TitleKo + " " + entry.Keywords)
+					}
+					if strings.Contains(searchTarget, query) {
+						docs = append(docs, line)
+					}
 				}
 				return nil
 			})
@@ -56,6 +134,9 @@ func (r *Registry) registerDocTools() {
 				return "", fmt.Errorf("failed to list documents: %w", err)
 			}
 			if len(docs) == 0 {
+				if query != "" {
+					return fmt.Sprintf("No documents found for '%s'", query), nil
+				}
 				return "No documentation files found", nil
 			}
 			return strings.Join(docs, "\n"), nil
