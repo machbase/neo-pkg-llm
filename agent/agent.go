@@ -995,6 +995,17 @@ func (a *Agent) validateTagInArgs(toolName string, args map[string]any) string {
 		return ""
 	}
 
+	// Detect unsubstituted placeholders like {TAG}, {TAG1}, {TAG2}, {TABLE}, {UNIT}
+	placeholderRE := regexp.MustCompile(`\{(TAG\d?|TABLE|UNIT)\}`)
+	if found := placeholderRE.FindAllString(tql, -1); len(found) > 0 {
+		return fmt.Sprintf(
+			"Error: 플레이스홀더 %v가 치환되지 않았습니다. "+
+				"tql_content에 raw TQL을 직접 쓰지 마세요! "+
+				"반드시 TEMPLATE:ID TABLE:테이블 TAG:태그 UNIT:단위 형식을 사용하세요. "+
+				"예: TEMPLATE:3-2 TABLE:STAT TAG1:machbase:http:latency TAG2:machbase:ps:cpu_percent",
+			found)
+	}
+
 	// Check for NAME = 'tag' patterns in TQL
 	nameRE := regexp.MustCompile(`NAME\s*=\s*'([^']+)'`)
 	matches := nameRE.FindAllStringSubmatch(tql, -1)

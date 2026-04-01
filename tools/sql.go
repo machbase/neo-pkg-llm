@@ -30,7 +30,7 @@ func (r *Registry) registerSQLTools() {
 
 	r.register(&Tool{
 		Name:        "list_table_tags",
-		Description: "Get tag list from a specific table in Machbase Neo.",
+		Description: "Get tag list. table_name is required — always specify the target table name! Omitting it queries ALL tables which is very slow.",
 		Parameters: ToolParameters{
 			Type: "object",
 			Properties: map[string]ToolProperty{

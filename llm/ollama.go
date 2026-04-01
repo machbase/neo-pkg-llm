@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -37,15 +39,47 @@ func NewOllamaClient(baseURL, model string) *OllamaClient {
 	if model == "" {
 		model = "llama3"
 	}
+	ensureOllamaRunning(baseURL)
 	return &OllamaClient{
 		Model:       model,
 		BaseURL:     baseURL,
 		Temperature: 0,
 		NumPredict:  4096,
-		NumCtx:      262144,
+		NumCtx:      40960,
 		NumGPU:      36,
 		client:      &http.Client{Timeout: 10 * time.Minute},
 	}
+}
+
+// ensureOllamaRunning kills any existing Ollama process and restarts it
+// with OLLAMA_FLASH_ATTENTION=1.
+func ensureOllamaRunning(baseURL string) {
+	// Kill existing Ollama process
+	kill := exec.Command("taskkill", "/f", "/im", "ollama.exe")
+	kill.Run() // ignore error (may not be running)
+	time.Sleep(1 * time.Second)
+
+	fmt.Println("[Ollama] Starting with FLASH_ATTENTION=1 ...")
+	cmd := exec.Command("ollama", "serve")
+	cmd.Env = append(os.Environ(), "OLLAMA_FLASH_ATTENTION=1")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("[Ollama] Failed to start: %v\n", err)
+		return
+	}
+
+	// Wait until server is ready (max 15s)
+	client := &http.Client{Timeout: 2 * time.Second}
+	for i := 0; i < 30; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if resp, err := client.Get(baseURL); err == nil {
+			resp.Body.Close()
+			fmt.Println("[Ollama] Server started successfully")
+			return
+		}
+	}
+	fmt.Println("[Ollama] WARNING: Server did not become ready in 15s")
 }
 
 // --- Ollama native API types ---
