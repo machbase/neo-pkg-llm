@@ -37,12 +37,12 @@ func NewClaudeClient(apiKey, model string) *ClaudeClient {
 // --- Request types ---
 
 type ClaudeRequest struct {
-	Model     string          `json:"model"`
-	MaxTokens int             `json:"max_tokens"`
-	System    string          `json:"system,omitempty"`
-	Messages  []ClaudeMessage `json:"messages"`
-	Tools     []ClaudeTool    `json:"tools,omitempty"`
-	Stream    bool            `json:"stream,omitempty"`
+	Model     string              `json:"model"`
+	MaxTokens int                 `json:"max_tokens"`
+	System    []ClaudeSystemBlock `json:"system,omitempty"`
+	Messages  []ClaudeMessage     `json:"messages"`
+	Tools     []ClaudeTool        `json:"tools,omitempty"`
+	Stream    bool                `json:"stream,omitempty"`
 }
 
 type ClaudeMessage struct {
@@ -122,10 +122,21 @@ func (cb *ContentBlock) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type CacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+type ClaudeSystemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
+}
+
 type ClaudeTool struct {
-	Name        string              `json:"name"`
-	Description string              `json:"description"`
-	InputSchema ClaudeToolSchema    `json:"input_schema"`
+	Name         string           `json:"name"`
+	Description  string           `json:"description"`
+	InputSchema  ClaudeToolSchema `json:"input_schema"`
+	CacheControl *CacheControl    `json:"cache_control,omitempty"`
 }
 
 type ClaudeToolSchema struct {
@@ -146,8 +157,33 @@ type ClaudeResponse struct {
 }
 
 type ClaudeUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+}
+
+// --- Caching helpers ---
+
+// buildSystemBlocks converts a plain system prompt string into a block array with cache_control.
+func buildSystemBlocks(system string) []ClaudeSystemBlock {
+	if system == "" {
+		return nil
+	}
+	return []ClaudeSystemBlock{
+		{
+			Type:         "text",
+			Text:         system,
+			CacheControl: &CacheControl{Type: "ephemeral"},
+		},
+	}
+}
+
+// applyToolsCacheControl sets cache_control on the last tool definition.
+func applyToolsCacheControl(tools []ClaudeTool) {
+	if len(tools) > 0 {
+		tools[len(tools)-1].CacheControl = &CacheControl{Type: "ephemeral"}
+	}
 }
 
 // --- Conversion helpers ---
@@ -314,10 +350,11 @@ func (c *ClaudeClient) Chat(ctx context.Context, messages []Message, toolDefs []
 	system, claudeMsgs := MessagesToClaudeMessages(messages)
 	claudeTools := ToolDefsToClaudeTools(toolDefs)
 
+	applyToolsCacheControl(claudeTools)
 	reqBody := ClaudeRequest{
 		Model:     c.Model,
 		MaxTokens: 4096,
-		System:    system,
+		System:    buildSystemBlocks(system),
 		Messages:  claudeMsgs,
 		Tools:     claudeTools,
 	}
@@ -327,6 +364,7 @@ func (c *ClaudeClient) Chat(ctx context.Context, messages []Message, toolDefs []
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -358,10 +396,11 @@ func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolD
 	system, claudeMsgs := MessagesToClaudeMessages(messages)
 	claudeTools := ToolDefsToClaudeTools(toolDefs)
 
+	applyToolsCacheControl(claudeTools)
 	reqBody := ClaudeRequest{
 		Model:     c.Model,
 		MaxTokens: 4096,
-		System:    system,
+		System:    buildSystemBlocks(system),
 		Messages:  claudeMsgs,
 		Tools:     claudeTools,
 		Stream:    true,
@@ -372,6 +411,7 @@ func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolD
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
 
 	resp, err := c.client.Do(req)
 	if err != nil {

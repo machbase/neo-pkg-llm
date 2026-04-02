@@ -363,6 +363,11 @@ func (a *Agent) initMessages(query string) {
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userContent},
 	}
+
+	// Set num_keep for Ollama to pin system prompt in KV cache
+	if ollamaClient, ok := a.llm.(*llm.OllamaClient); ok {
+		ollamaClient.SetNumKeep(systemPrompt)
+	}
 }
 
 // HasHistory returns true if the agent has prior conversation messages.

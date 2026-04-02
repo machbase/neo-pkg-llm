@@ -22,6 +22,7 @@ type OllamaClient struct {
 	NumPredict  int
 	NumCtx      int
 	NumGPU      int
+	numKeep     int // dynamically computed system prompt token count
 	client      *http.Client
 }
 
@@ -30,6 +31,7 @@ type OllamaOptions struct {
 	NumPredict  int     `json:"num_predict,omitempty"`
 	NumCtx      int     `json:"num_ctx,omitempty"`
 	NumGPU      int     `json:"num_gpu,omitempty"`
+	NumKeep     int     `json:"num_keep,omitempty"`
 }
 
 func NewOllamaClient(baseURL, model string) *OllamaClient {
@@ -80,6 +82,53 @@ func ensureOllamaRunning(baseURL string) {
 		}
 	}
 	fmt.Println("[Ollama] WARNING: Server did not become ready in 15s")
+}
+
+// measureSystemTokens sends the system prompt to Ollama to get the exact token count.
+func (o *OllamaClient) measureSystemTokens(systemPrompt string) int {
+	reqBody := map[string]any{
+		"model":       o.Model,
+		"prompt":      systemPrompt,
+		"num_predict": 1,
+		"stream":      false,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/api/generate", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		fmt.Printf("[Ollama] Failed to measure system tokens: %v\n", err)
+		return 0
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		PromptEvalCount int `json:"prompt_eval_count"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Printf("[Ollama] Failed to decode token count response: %v\n", err)
+		return 0
+	}
+	return result.PromptEvalCount
+}
+
+// SetNumKeep measures the system prompt token count in background and sets num_keep when ready.
+func (o *OllamaClient) SetNumKeep(systemPrompt string) {
+	if systemPrompt == "" {
+		return
+	}
+	go func() {
+		count := o.measureSystemTokens(systemPrompt)
+		if count > 0 {
+			o.numKeep = count
+			fmt.Printf("[Ollama] num_keep set to %d tokens\n", count)
+		}
+	}()
 }
 
 // --- Ollama native API types ---
@@ -160,6 +209,7 @@ func (o *OllamaClient) Chat(ctx context.Context, messages []Message, toolDefs []
 			NumPredict:  o.NumPredict,
 			NumCtx:      o.NumCtx,
 			NumGPU:      o.NumGPU,
+			NumKeep:     o.numKeep,
 		},
 	}
 
@@ -206,6 +256,7 @@ func (o *OllamaClient) ChatStream(ctx context.Context, messages []Message, toolD
 			NumPredict:  o.NumPredict,
 			NumCtx:      o.NumCtx,
 			NumGPU:      o.NumGPU,
+			NumKeep:     o.numKeep,
 		},
 	}
 

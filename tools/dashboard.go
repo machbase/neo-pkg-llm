@@ -102,21 +102,6 @@ func (r *Registry) registerDashboardTools() {
 		Fn: r.getDashboard,
 	})
 	r.register(&Tool{
-		Name:        "create_dashboard",
-		Description: "Create a new empty dashboard in Machbase Neo Web UI.",
-		Parameters: ToolParameters{
-			Type: "object",
-			Properties: map[string]ToolProperty{
-				"filename":   {Type: "string", Description: "Dashboard path (e.g., 'BEARING/analysis.dsh')"},
-				"title":      {Type: "string", Description: "Dashboard title", Default: "New dashboard"},
-				"time_start": {Type: "string", Description: "Time range start", Default: "now-1h"},
-				"time_end":   {Type: "string", Description: "Time range end", Default: "now"},
-			},
-			Required: []string{"filename"},
-		},
-		Fn: r.createDashboard,
-	})
-	r.register(&Tool{
 		Name:        "create_dashboard_with_charts",
 		Description: "Create a dashboard with multiple chart panels in a single call.",
 		Parameters: ToolParameters{
@@ -298,29 +283,6 @@ func (r *Registry) getDashboard(args map[string]any) (string, error) {
 	return strings.TrimSpace(result.String()), nil
 }
 
-func (r *Registry) createDashboard(args map[string]any) (string, error) {
-	filename := fixDashFilename(argStr(args, "filename", ""))
-	title := argStr(args, "title", "New dashboard")
-	timeStart := argStr(args, "time_start", "now-1h")
-	timeEnd := argStr(args, "time_end", "now")
-
-	if filename == "" {
-		return "", fmt.Errorf("filename is required")
-	}
-	if !isEnglishFilename(filename) {
-		return "", fmt.Errorf("filename must contain only English characters: %s", filename)
-	}
-
-	ensureParentFolder(r.client, filename)
-
-	dshFile := buildDSHFile(filename, title, timeStart, timeEnd, nil)
-	result, err := r.saveDashFile(filename, dshFile)
-	if err != nil {
-		return result, err
-	}
-	return result + "\n\n주의: 대시보드에 차트가 아직 없습니다. add_chart_to_dashboard를 호출하여 TQL 차트를 추가하세요. 차트 추가가 모두 완료된 후에 분석 보고를 작성하세요.", nil
-}
-
 func (r *Registry) createDashboardWithCharts(args map[string]any) (string, error) {
 	filename := fixDashFilename(argStr(args, "filename", ""))
 	title := argStr(args, "title", "Dashboard")
@@ -402,9 +364,28 @@ func (r *Registry) addChartToDashboard(args map[string]any) (string, error) {
 
 	panels := getDashPanels(raw)
 
+	// Deduplicate: skip if a panel with the same tql_path already exists
+	tqlPath := argStr(args, "tql_path", "")
+	if tqlPath != "" {
+		for _, p := range panels {
+			if pm, ok := p.(map[string]any); ok {
+				if ti, ok := pm["tqlInfo"].(map[string]any); ok {
+					if existing, _ := ti["path"].(string); existing != "" {
+						// Normalize: strip leading "/" for comparison
+						a := strings.TrimPrefix(existing, "/")
+						b := strings.TrimPrefix(tqlPath, "/")
+						if a == b {
+							return fmt.Sprintf("Chart already exists in dashboard (tql_path: %s), skipped", tqlPath), nil
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Calculate auto-position based on existing panels
 	cType := argStr(args, "chart_type", "Line")
-	if argStr(args, "tql_path", "") != "" {
+	if tqlPath != "" {
 		cType = "Tql chart"
 	}
 	w := argInt(args, "w", 0)
@@ -660,8 +641,23 @@ func getDashPanels(raw map[string]any) []any {
 func setDashPanels(raw map[string]any, panels []any) {
 	dash, ok := raw["dashboard"].(map[string]any)
 	if !ok {
-		dash = map[string]any{}
+		dash = map[string]any{
+			"variables": []any{},
+			"timeRange": map[string]any{
+				"start":   "",
+				"end":     "",
+				"refresh": "Off",
+			},
+			"title": "",
+		}
 		raw["dashboard"] = dash
+	}
+	if _, hasTimeRange := dash["timeRange"]; !hasTimeRange {
+		dash["timeRange"] = map[string]any{
+			"start":   "",
+			"end":     "",
+			"refresh": "Off",
+		}
 	}
 	if panels == nil {
 		panels = []any{}

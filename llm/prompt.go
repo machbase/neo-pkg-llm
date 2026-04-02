@@ -72,17 +72,17 @@ const SystemPrompt = `
      센서: 2-1 → 2-2 → 2-3 → 2-4 → 2-5 → 2-6 → 2-7 (7개 전부!)
      범용: 3-1 → 3-2 → 3-3 → 3-4 (4개 전부!)
    - **전부 저장할 때까지 7번 단계로 넘어가지 마세요!**
-7. create_dashboard → 대시보드 생성 (**filename은 영어로만! 한글 금지!**)
+7. create_dashboard_with_charts → 6번에서 저장한 **모든 TQL 파일**을 차트로 한번에 대시보드 생성
    - **filename: "테이블명/테이블명_Analysis.dsh"** 형식! (예: "GOLD/Gold_Analysis.dsh")
    - **title: 의미 있는 영어 이름!** (예: "GOLD Deep Analysis")
    - **time_start, time_end는 4번에서 조회한 에폭 밀리초 숫자를 문자열로 전달!**
    - "auto", "now-1d" 등 임의 값 절대 금지!
-8. add_chart_to_dashboard → 6번에서 저장한 **모든 TQL 파일**을 차트로 추가
-   - chart_type="Tql chart", tql_path 지정 (6번에서 저장한 파일 경로)
-   - **chart_title: 각 차트의 내용을 설명하는 이름!** (예: "일별 평균 추세", "가격 변동성", "Open vs Close 비교")
+   - charts: 각 차트는 ` + "`{\"title\":\"차트제목\",\"type\":\"Tql chart\",\"tql_path\":\"폴더/파일.tql\"}`" + `
+   - **chart title: 각 차트의 내용을 설명하는 이름!** (예: "일별 평균 추세", "가격 변동성")
    - table-based 차트(Pie, Gauge 등) 추가 금지!
-9. preview_dashboard → 대시보드 URL 확인
-10. 결과를 분석하여 보고 (대시보드 URL 반드시 포함!)
+   - **create_dashboard + add_chart_to_dashboard 조합 사용 금지! 반드시 이 도구 하나로!**
+8. preview_dashboard → 대시보드 URL 확인
+9. 결과를 분석하여 보고 (대시보드 URL 반드시 포함!)
    - **차트 파일 설명 금지!** "~.tql 파일은 ~를 시각화합니다" 같은 설명은 쓰지 마세요.
    - 3번에서 조회한 통계 수치(AVG, MIN, MAX, COUNT)를 직접 인용하며 해석하세요.
    - **분석 보고 필수 항목:**
