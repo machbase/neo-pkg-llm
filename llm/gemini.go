@@ -9,7 +9,21 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+)
+
+// geminiCacheEntry holds a shared cached content resource for a specific model.
+type geminiCacheEntry struct {
+	name   string // "cachedContents/xxx" resource name
+	system string // cached system prompt (for change detection)
+	tools  string // cached tools JSON (for change detection)
+}
+
+// geminiCacheStore is a shared cache across all GeminiClient instances, keyed by model name.
+var (
+	geminiCacheStore = make(map[string]*geminiCacheEntry)
+	geminiCacheMu    sync.Mutex
 )
 
 // GeminiClient implements LLMProvider for Google Gemini API.
@@ -38,6 +52,7 @@ type geminiRequest struct {
 	Contents          []geminiContent `json:"contents"`
 	Tools             []geminiTool    `json:"tools,omitempty"`
 	SystemInstruction *geminiContent  `json:"systemInstruction,omitempty"`
+	CachedContent     string          `json:"cachedContent,omitempty"`
 }
 
 type geminiContent struct {
@@ -261,17 +276,124 @@ func geminiResponseToMessage(resp *geminiResponse) Message {
 	return msg
 }
 
+// --- Context caching ---
+
+// SetupCache pre-creates a shared cached content resource for the system prompt and tools.
+// The cache is shared across all GeminiClient instances using the same model.
+func (c *GeminiClient) SetupCache(systemPrompt string, toolDefs []map[string]any) {
+	if systemPrompt == "" {
+		return
+	}
+	tools := toolDefsToGemini(toolDefs)
+	toolsJSON, _ := json.Marshal(tools)
+	toolsKey := string(toolsJSON)
+
+	go func() {
+		if err := c.ensureCache(systemPrompt, tools, toolsKey); err != nil {
+			fmt.Printf("[Gemini] cache setup failed (will use normal requests): %v\n", err)
+		}
+	}()
+}
+
+// ensureCache creates or reuses a shared cached content resource.
+func (c *GeminiClient) ensureCache(system string, tools []geminiTool, toolsKey string) error {
+	geminiCacheMu.Lock()
+	defer geminiCacheMu.Unlock()
+
+	// Skip if existing cache matches
+	if entry, ok := geminiCacheStore[c.Model]; ok {
+		if entry.system == system && entry.tools == toolsKey {
+			fmt.Printf("[Gemini] reusing shared cache: %s (model=%s)\n", entry.name, c.Model)
+			return nil
+		}
+		// Content changed → delete old cache
+		c.deleteCacheLocked(entry.name)
+	}
+
+	// Build cache creation request
+	cacheReq := map[string]any{
+		"model": "models/" + c.Model,
+		"systemInstruction": map[string]any{
+			"parts": []map[string]any{
+				{"text": system},
+			},
+		},
+		"ttl": "300s",
+	}
+	if len(tools) > 0 {
+		cacheReq["tools"] = tools
+	}
+
+	body, _ := json.Marshal(cacheReq)
+	url := fmt.Sprintf("%s/v1beta/cachedContents?key=%s", c.BaseURL, c.APIKey)
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("cache create request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cache create failed (%d): %s", resp.StatusCode, string(errBody))
+	}
+
+	var result struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("cache create decode failed: %w", err)
+	}
+
+	geminiCacheStore[c.Model] = &geminiCacheEntry{
+		name:   result.Name,
+		system: system,
+		tools:  toolsKey,
+	}
+	fmt.Printf("[Gemini] shared cache created: %s (model=%s)\n", result.Name, c.Model)
+	return nil
+}
+
+// deleteCacheLocked removes a cached content resource. Must be called with geminiCacheMu held.
+func (c *GeminiClient) deleteCacheLocked(name string) {
+	if name == "" {
+		return
+	}
+	url := fmt.Sprintf("%s/v1beta/%s?key=%s", c.BaseURL, name, c.APIKey)
+	req, _ := http.NewRequestWithContext(context.Background(), "DELETE", url, nil)
+	c.client.Do(req)
+	delete(geminiCacheStore, c.Model)
+}
+
+// buildRequest constructs a geminiRequest, using shared cached content when available.
+func (c *GeminiClient) buildRequest(system *geminiContent, contents []geminiContent, tools []geminiTool) geminiRequest {
+	geminiCacheMu.Lock()
+	entry := geminiCacheStore[c.Model]
+	geminiCacheMu.Unlock()
+
+	if entry != nil {
+		// When using cached content, omit systemInstruction and tools (they're in the cache)
+		return geminiRequest{
+			Contents:      contents,
+			CachedContent: entry.name,
+		}
+	}
+	return geminiRequest{
+		Contents:          contents,
+		Tools:             tools,
+		SystemInstruction: system,
+	}
+}
+
 // --- API calls ---
 
 func (c *GeminiClient) Chat(ctx context.Context, messages []Message, toolDefs []map[string]any) (*ChatResponse, error) {
 	system, contents := messagesToGemini(messages)
 	tools := toolDefsToGemini(toolDefs)
 
-	reqBody := geminiRequest{
-		Contents:          contents,
-		Tools:             tools,
-		SystemInstruction: system,
-	}
+	reqBody := c.buildRequest(system, contents, tools)
 
 	body, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", c.BaseURL, c.Model, c.APIKey)
@@ -329,11 +451,7 @@ func (c *GeminiClient) ChatStream(ctx context.Context, messages []Message, toolD
 	system, contents := messagesToGemini(messages)
 	tools := toolDefsToGemini(toolDefs)
 
-	reqBody := geminiRequest{
-		Contents:          contents,
-		Tools:             tools,
-		SystemInstruction: system,
-	}
+	reqBody := c.buildRequest(system, contents, tools)
 
 	body, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", c.BaseURL, c.Model, c.APIKey)

@@ -94,7 +94,7 @@ func (o *OllamaClient) measureSystemTokens(systemPrompt string) int {
 	}
 	body, _ := json.Marshal(reqBody)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/api/generate", bytes.NewReader(body))

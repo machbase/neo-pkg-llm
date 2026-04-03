@@ -65,9 +65,20 @@ type openaiResponse struct {
 		Message      openaiMessage `json:"message"`
 		FinishReason string        `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *openaiUsage `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+type openaiUsage struct {
+	PromptTokens        int                   `json:"prompt_tokens"`
+	CompletionTokens    int                   `json:"completion_tokens"`
+	PromptTokensDetails *openaiPromptDetails  `json:"prompt_tokens_details,omitempty"`
+}
+
+type openaiPromptDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 // --- Conversion helpers ---
@@ -180,12 +191,22 @@ func (c *ChatGPTClient) Chat(ctx context.Context, messages []Message, toolDefs [
 		return nil, fmt.Errorf("chatgpt error: %s", openaiResp.Error.Message)
 	}
 
+	logOpenAICacheUsage(&openaiResp)
+
 	msg := openaiResponseToMessage(&openaiResp)
 	return &ChatResponse{
 		Model:   c.Model,
 		Message: msg,
 		Done:    true,
 	}, nil
+}
+
+// logOpenAICacheUsage logs prompt cache hit information from the OpenAI response.
+func logOpenAICacheUsage(resp *openaiResponse) {
+	if resp.Usage != nil && resp.Usage.PromptTokensDetails != nil && resp.Usage.PromptTokensDetails.CachedTokens > 0 {
+		fmt.Printf("[ChatGPT] prompt cache hit: %d/%d tokens cached\n",
+			resp.Usage.PromptTokensDetails.CachedTokens, resp.Usage.PromptTokens)
+	}
 }
 
 func (c *ChatGPTClient) ChatStream(ctx context.Context, messages []Message, toolDefs []map[string]any, cb StreamCallback) (*ChatResponse, error) {

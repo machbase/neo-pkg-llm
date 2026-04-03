@@ -382,6 +382,8 @@ func (c *ClaudeClient) Chat(ctx context.Context, messages []Message, toolDefs []
 		return nil, fmt.Errorf("failed to decode claude response: %w", err)
 	}
 
+	logClaudeCacheUsage(&claudeResp.Usage)
+
 	msg := ClaudeResponseToMessage(&claudeResp)
 
 	return &ChatResponse{
@@ -389,6 +391,19 @@ func (c *ClaudeClient) Chat(ctx context.Context, messages []Message, toolDefs []
 		Message: msg,
 		Done:    true,
 	}, nil
+}
+
+// logClaudeCacheUsage logs prompt cache hit/creation information.
+func logClaudeCacheUsage(usage *ClaudeUsage) {
+	if usage == nil {
+		return
+	}
+	if usage.CacheReadInputTokens > 0 {
+		fmt.Printf("[Claude] prompt cache hit: %d tokens read from cache\n", usage.CacheReadInputTokens)
+	}
+	if usage.CacheCreationInputTokens > 0 {
+		fmt.Printf("[Claude] prompt cache created: %d tokens cached\n", usage.CacheCreationInputTokens)
+	}
 }
 
 // ChatStream sends a streaming request to Claude API.
@@ -447,6 +462,20 @@ func (c *ClaudeClient) ChatStream(ctx context.Context, messages []Message, toolD
 
 		eventType, _ := event["type"].(string)
 		switch eventType {
+		case "message_start":
+			if msg, ok := event["message"].(map[string]any); ok {
+				if usage, ok := msg["usage"].(map[string]any); ok {
+					var u ClaudeUsage
+					if v, ok := usage["cache_creation_input_tokens"].(float64); ok {
+						u.CacheCreationInputTokens = int(v)
+					}
+					if v, ok := usage["cache_read_input_tokens"].(float64); ok {
+						u.CacheReadInputTokens = int(v)
+					}
+					logClaudeCacheUsage(&u)
+				}
+			}
+
 		case "content_block_start":
 			block, _ := event["content_block"].(map[string]any)
 			if block != nil {

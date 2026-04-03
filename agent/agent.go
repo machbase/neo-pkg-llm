@@ -368,6 +368,11 @@ func (a *Agent) initMessages(query string) {
 	if ollamaClient, ok := a.llm.(*llm.OllamaClient); ok {
 		ollamaClient.SetNumKeep(systemPrompt)
 	}
+
+	// Set up context cache for Gemini (system prompt + tools)
+	if geminiClient, ok := a.llm.(*llm.GeminiClient); ok {
+		geminiClient.SetupCache(systemPrompt, a.registry.AllToolDefs())
+	}
 }
 
 // HasHistory returns true if the agent has prior conversation messages.

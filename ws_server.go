@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -361,6 +362,129 @@ type legacyStreamBlockDelta struct {
 	Thinking    string `json:"thinking,omitempty"`
 }
 
+// --- Code fence parser for streaming ---
+
+// fenceParser detects markdown code fences in streamed text and emits
+// separate contentType values for code blocks (e.g., "sql", "tql").
+// Text outside code fences is emitted as contentType "text".
+// Code blocks are buffered and emitted as a single chunk.
+type fenceParser struct {
+	inCode   bool   // inside a code fence
+	language string // detected language (sql, tql, etc.)
+	textBuf  strings.Builder
+	codeBuf  strings.Builder
+	lineBuf  strings.Builder // accumulates partial lines
+	emit     func(contentType, text string)
+}
+
+// Write processes a streaming text chunk. Chunks may split across line boundaries.
+func (p *fenceParser) Write(chunk string) {
+	for _, ch := range chunk {
+		p.lineBuf.WriteRune(ch)
+		if ch == '\n' {
+			p.processLine(p.lineBuf.String())
+			p.lineBuf.Reset()
+		}
+	}
+}
+
+// Flush emits any remaining buffered content.
+func (p *fenceParser) Flush() {
+	// Process any remaining partial line
+	if p.lineBuf.Len() > 0 {
+		p.processLine(p.lineBuf.String())
+		p.lineBuf.Reset()
+	}
+	// Emit remaining buffers
+	if p.inCode {
+		// Unclosed code block — emit as text (include fence marker)
+		p.textBuf.WriteString("```" + p.language + "\n")
+		p.textBuf.WriteString(p.codeBuf.String())
+		p.codeBuf.Reset()
+		p.inCode = false
+	}
+	if p.textBuf.Len() > 0 {
+		p.emit("text", p.textBuf.String())
+		p.textBuf.Reset()
+	}
+}
+
+// processLine handles a complete line, detecting code fence boundaries.
+func (p *fenceParser) processLine(line string) {
+	trimmed := strings.TrimSpace(line)
+
+	if !p.inCode {
+		// Check for opening fence: ```lang
+		if strings.HasPrefix(trimmed, "```") && trimmed != "```" {
+			// Flush pending text before code block
+			if p.textBuf.Len() > 0 {
+				p.emit("text", p.textBuf.String())
+				p.textBuf.Reset()
+			}
+			p.language = strings.TrimPrefix(trimmed, "```")
+			p.language = strings.TrimSpace(p.language)
+			p.inCode = true
+			return
+		}
+		// Check for opening fence without language: ```
+		if trimmed == "```" {
+			if p.textBuf.Len() > 0 {
+				p.emit("text", p.textBuf.String())
+				p.textBuf.Reset()
+			}
+			p.language = ""
+			p.inCode = true
+			return
+		}
+		p.textBuf.WriteString(line)
+	} else {
+		// Inside code block — check for closing fence
+		if trimmed == "```" {
+			// Detect actual language from code content, then emit with markdown fences
+			code := p.codeBuf.String()
+			lang := detectCodeLanguage(code, p.language)
+			fenced := "```" + lang + "\n" + code + "```\n"
+			p.emit(lang, fenced)
+			p.codeBuf.Reset()
+			p.inCode = false
+			p.language = ""
+			return
+		}
+		p.codeBuf.WriteString(line)
+	}
+}
+
+// detectCodeLanguage determines the actual language of a code block by inspecting its content.
+// Falls back to the fence-declared language if no pattern matches.
+func detectCodeLanguage(code, declared string) string {
+	upper := strings.ToUpper(code)
+
+	// TQL patterns — check first (TQL can contain SQL() inside)
+	tqlKeywords := []string{"SQL(", "FAKE(", "CHART_", "CHART(", "MAPVALUE(", "POPVALUE(",
+		"PUSHVALUE(", "SCRIPT(", "CSV(", "JSON(", "APPEND(", "INSERT(",
+		"BRIDGE(", "QUERY(", "SINK_", "DISCARD(", "GROUP("}
+	for _, kw := range tqlKeywords {
+		if strings.Contains(upper, kw) {
+			return "tql"
+		}
+	}
+
+	// SQL patterns
+	sqlKeywords := []string{"SELECT ", "INSERT ", "CREATE ", "DROP ", "ALTER ",
+		"DELETE ", "UPDATE ", "ROLLUP(", "GROUP BY", "ORDER BY"}
+	for _, kw := range sqlKeywords {
+		if strings.Contains(upper, kw) {
+			return "sql"
+		}
+	}
+
+	// Use declared language, or "code" if empty
+	if declared == "" {
+		return "code"
+	}
+	return declared
+}
+
 // emitLegacy converts agent events to the legacy Neo Chat UI format.
 func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 	emit := func(typ string, body *legacyBodyUnion) {
@@ -393,6 +517,42 @@ func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 
 	inStreamBlock := false
 
+	// Fence parser: detects code blocks and emits with proper contentType
+	parser := &fenceParser{
+		emit: func(contentType, text string) {
+			if text == "" {
+				return
+			}
+			if contentType != "text" {
+				// Code block: close any open stream block, emit as standalone block
+				if inStreamBlock {
+					emit("stream_block_stop", nil)
+					inStreamBlock = false
+				}
+				emit("stream_block_start", nil)
+				emit("stream_block_delta", &legacyBodyUnion{
+					OfStreamBlockDelta: &legacyStreamBlockDelta{
+						ContentType: contentType,
+						Text:        text,
+					},
+				})
+				emit("stream_block_stop", nil)
+			} else {
+				// Text: stream as delta within open block
+				if !inStreamBlock {
+					emit("stream_block_start", nil)
+					inStreamBlock = true
+				}
+				emit("stream_block_delta", &legacyBodyUnion{
+					OfStreamBlockDelta: &legacyStreamBlockDelta{
+						ContentType: "text",
+						Text:        text,
+					},
+				})
+			}
+		},
+	}
+
 	for event := range events {
 		switch event.Type {
 		case "status":
@@ -400,20 +560,11 @@ func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 			emitTextBlock(event.Content)
 
 		case "stream":
-			// stream → open block once, then deltas
-			if !inStreamBlock {
-				emit("stream_block_start", nil)
-				inStreamBlock = true
-			}
-			emit("stream_block_delta", &legacyBodyUnion{
-				OfStreamBlockDelta: &legacyStreamBlockDelta{
-					ContentType: "text",
-					Text:        event.Content,
-				},
-			})
+			parser.Write(event.Content)
 
 		case "tool_call":
-			// close any open stream block first
+			// flush parser and close any open stream block first
+			parser.Flush()
 			if inStreamBlock {
 				emit("stream_block_stop", nil)
 				inStreamBlock = false
@@ -435,6 +586,8 @@ func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 			emitTextBlock(resultMsg)
 
 		case "final":
+			// flush remaining parser buffer
+			parser.Flush()
 			// close any open stream block
 			if inStreamBlock {
 				emit("stream_block_stop", nil)
