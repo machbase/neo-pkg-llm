@@ -88,6 +88,7 @@ func loadCatalog() map[string]catalogEntry {
 func (r *Registry) registerDocTools() {
 	r.register(&Tool{
 		Name:        "list_available_documents",
+		Internal:    true, // Called by Go code in initMessages(), not exposed to LLM
 		Description: "Search documentation by keyword. Returns matching documents with exact file paths. Use the returned path as-is for get_full_document_content.",
 		Parameters: ToolParameters{
 			Type: "object",
@@ -161,6 +162,27 @@ func (r *Registry) registerDocTools() {
 			fullPath := filepath.Join(docsBasePath, filepath.FromSlash(fileID))
 			data, err := os.ReadFile(fullPath)
 			if err != nil {
+				// File not found: search catalog for keyword suggestions
+				catalog := loadCatalog()
+				// Extract search term from the requested path
+				base := strings.TrimSuffix(filepath.Base(fileID), ".md")
+				terms := strings.FieldsFunc(base, func(r rune) bool {
+					return r == '-' || r == '_' || r == '.'
+				})
+				var suggestions []string
+				for path, entry := range catalog {
+					kw := strings.ToLower(entry.Keywords)
+					for _, term := range terms {
+						t := strings.ToLower(term)
+						if len(t) >= 3 && strings.Contains(kw, t) {
+							suggestions = append(suggestions, fmt.Sprintf("- %s (%s)", path, entry.Keywords))
+							break
+						}
+					}
+				}
+				if len(suggestions) > 0 {
+					return "", fmt.Errorf("문서를 찾을 수 없습니다: %s\n카탈로그에서 찾은 관련 문서:\n%s\n위 경로로 다시 호출하세요.", fileID, strings.Join(suggestions, "\n"))
+				}
 				return "", fmt.Errorf("failed to read document: %w", err)
 			}
 			return string(data), nil

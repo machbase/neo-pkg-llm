@@ -149,6 +149,4 @@ const SystemPrompt = `
 - TQL SQL()에서 큰따옴표(") 사용 금지 → 백틱 사용!
 - TQL SQL()에서 ROLLUP alias 사용 금지!
 - TQL에서 SQL()은 파일당 1회만 사용 가능. 두 번 쓰면 에러!
-
-/no_think
 `

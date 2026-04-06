@@ -84,51 +84,14 @@ func ensureOllamaRunning(baseURL string) {
 	fmt.Println("[Ollama] WARNING: Server did not become ready in 15s")
 }
 
-// measureSystemTokens sends the system prompt to Ollama to get the exact token count.
-func (o *OllamaClient) measureSystemTokens(systemPrompt string) int {
-	reqBody := map[string]any{
-		"model":       o.Model,
-		"prompt":      systemPrompt,
-		"num_predict": 1,
-		"stream":      false,
-	}
-	body, _ := json.Marshal(reqBody)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, "POST", o.BaseURL+"/api/generate", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := o.client.Do(req)
-	if err != nil {
-		fmt.Printf("[Ollama] Failed to measure system tokens: %v\n", err)
-		return 0
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		PromptEvalCount int `json:"prompt_eval_count"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Printf("[Ollama] Failed to decode token count response: %v\n", err)
-		return 0
-	}
-	return result.PromptEvalCount
-}
-
-// SetNumKeep measures the system prompt token count in background and sets num_keep when ready.
+// SetNumKeep estimates the system prompt token count from string length and sets num_keep.
+// Uses ~1.5 chars/token for CJK-heavy text (conservative estimate to avoid truncation).
 func (o *OllamaClient) SetNumKeep(systemPrompt string) {
 	if systemPrompt == "" {
 		return
 	}
-	go func() {
-		count := o.measureSystemTokens(systemPrompt)
-		if count > 0 {
-			o.numKeep = count
-			fmt.Printf("[Ollama] num_keep set to %d tokens\n", count)
-		}
-	}()
+	o.numKeep = len(systemPrompt) + 200
+	fmt.Printf("[Ollama] num_keep set to %d (estimated from %d chars)\n", o.numKeep, len(systemPrompt))
 }
 
 // --- Ollama native API types ---

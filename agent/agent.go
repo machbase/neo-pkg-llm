@@ -339,8 +339,15 @@ func (a *Agent) initMessages(query string) {
 	// Inject document catalog into system prompt
 	docList, _ := a.registry.ExecuteMap("list_available_documents", nil)
 	systemPrompt := llm.SystemPrompt
+	if _, ok := a.llm.(*llm.OllamaClient); ok {
+		systemPrompt = llm.OllamaSystemPrompt
+	}
 	if docList != "" {
 		systemPrompt += "\n\n## 문서 카탈로그 (경로 | 한국어 제목 | 키워드)\n" + docList + "\n"
+	}
+	// Ollama: append /no_think after catalog so catalog gets attention before thinking stops
+	if _, ok := a.llm.(*llm.OllamaClient); ok {
+		systemPrompt += "\n/no_think"
 	}
 
 	// Detect analysis type and set agent mode
@@ -381,11 +388,26 @@ func (a *Agent) HasHistory() bool {
 }
 
 // ContinueMessages appends a new user query to existing conversation history.
+// For Ollama, resets to [system + new query] with a short analysis hint.
 func (a *Agent) ContinueMessages(query string) {
-	a.messages = append(a.messages, llm.Message{
-		Role:    "user",
-		Content: query,
-	})
+	if _, ok := a.llm.(*llm.OllamaClient); ok {
+		userContent := query
+		if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
+			if isAdvancedQuery(query) {
+				a.advanced = true
+				userContent += "\n\n[고급 분석(TQL 템플릿) 절차를 따르세요.]"
+			} else {
+				a.advanced = false
+				userContent += "\n\n[기본 분석(table-based 차트) 절차를 따르세요.]"
+			}
+		}
+		a.messages = []llm.Message{a.messages[0], {Role: "user", Content: userContent}}
+	} else {
+		a.messages = append(a.messages, llm.Message{
+			Role:    "user",
+			Content: query,
+		})
+	}
 }
 
 // inferTableName scans previous messages to find a table name.
