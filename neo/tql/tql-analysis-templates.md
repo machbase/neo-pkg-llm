@@ -4,9 +4,19 @@
 
 ## 사용법
 1. 데이터 성질에 맞는 분야를 선택 (금융/센서·진동/일반)
-2. 2~3개 템플릿을 선택하여 `{TABLE}`, `{TAG}`, `{UNIT}`을 실제 값으로 교체
+2. 선택한 분야의 템플릿을 선택하여 `{TABLE}`, `{TAG}`, `{UNIT}`을 실제 값으로 교체 -> **아래 변수 설명 준수**
 3. `save_tql_file`로 저장
 4. `add_chart_to_dashboard`에서 `chart_type="Tql chart"`, `tql_path` 지정
+
+## 변수 설명
+| 변수 | 설명 | 예시 |
+|------|------|------|
+| {TABLE} | 대상 TAG 테이블명 | STAT, GOLD, BEARING |
+| {TAG} | list_table_tags로 확인한 실제 태그명 | machbase:http:latency, open |
+| {TAG1}, {TAG2} | 비교 템플릿용 태그 2개 | TAG1:open, TAG2:close |
+| {UNIT} | ROLLUP 시간 단위 (아래 6개만 허용) | 'sec', 'min', 'hour', 'day', 'week', 'month' |
+| {TIME_START} | 조회 시작 시간 (datetime 문자열) | 2024-01-20 00:00:00 |
+| {TIME_END} | 조회 종료 시간 (datetime 문자열) | 2024-01-20 23:57:00 |
 
 ## ROLLUP 시간 단위 선택 가이드 ({UNIT} 값)
 
@@ -34,7 +44,7 @@ OHLC(open/high/low/close) + volume 구조의 데이터에 적합합니다.
 ### 1-1. 일별 롤업 평균 (장기 추세)
 용도: 평균 가격으로 장기 추세를 파악합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     $.yield([$.values[0], $.values[1]])
 })
@@ -53,7 +63,7 @@ CHART(
 ### 1-2. 주별 변동성 (가격 변동 폭)
 용도: MAX-MIN 차이로 변동성을 시각화합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 MAPVALUE(1, value(1) - value(2))
 POPVALUE(2)
 SCRIPT({
@@ -74,7 +84,7 @@ CHART(
 ### 1-3. 가격 범위 밴드 (MIN/MAX/AVG 엔벨로프)
 용도: 가격의 상한/하한/평균 밴드를 오버레이하여 가격 범위를 파악합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     var maxArr = [];
     var minArr = [];
@@ -107,7 +117,7 @@ CHART(
 ### 1-4. 두 태그 비교 (Open vs Close 등)
 용도: 두 태그를 오버레이하여 비교합니다. {TAG1}과 {TAG2}를 교체하세요.
 ```tql
-SQL(`SELECT NAME, TIME, VALUE FROM {TABLE} WHERE NAME IN ('{TAG1}', '{TAG2}') GROUP BY NAME, TIME, VALUE ORDER BY TIME LIMIT 500`)
+SQL(`SELECT NAME, TIME, VALUE FROM {TABLE} WHERE NAME IN ('{TAG1}', '{TAG2}') AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY NAME, TIME, VALUE ORDER BY TIME LIMIT 500`)
 SCRIPT({
     var arr1 = [];
     var arr2 = [];
@@ -140,7 +150,7 @@ CHART(
 ### 1-5. 거래량 추세 (합계)
 용도: 거래량 합계로 거래 활성도를 파악합니다. volume 태그에 적합.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), SUM(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), SUM(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     $.yield([$.values[0], $.values[1]])
 })
@@ -159,7 +169,7 @@ CHART(
 ### 1-6. 로그 가격 (수익률 분석)
 용도: 로그 스케일로 가격을 변환하여 장기 수익률 추세를 분석합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 MAPVALUE(1, log(value(1)))
 SCRIPT({
     $.yield([$.values[0], $.values[1]])
@@ -184,7 +194,7 @@ CHART(
 ### 2-1. RMS (Root Mean Square, 에너지 수준)
 용도: 시간 구간별 RMS 값으로 진동 에너지 수준을 모니터링합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), SUMSQ(VALUE), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), SUMSQ(VALUE), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 MAPVALUE(1, sqrt(value(1)/value(2)))
 POPVALUE(2)
 SCRIPT({
@@ -222,7 +232,7 @@ CHART_LINE(
 ### 2-3. Peak Envelope (최대값 포락선)
 용도: 시간 구간별 최대값으로 포락선을 그려 피크 추세를 파악합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     $.yield([$.values[0], $.values[1]])
 })
@@ -241,7 +251,7 @@ CHART(
 ### 2-4. Peak-to-Peak (진폭 범위)
 용도: 시간 구간별 MAX-MIN 차이로 진폭 범위를 측정합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 MAPVALUE(1, value(1) - value(2))
 POPVALUE(2)
 SCRIPT({
@@ -262,7 +272,7 @@ CHART(
 ### 2-5. Crest Factor (충격 지표)
 용도: MAX/RMS 비율로 충격 성분을 감지합니다. 높은 값은 충격성 진동을 의미합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), SUMSQ(VALUE), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), SUMSQ(VALUE), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 MAPVALUE(1, value(1) / sqrt(value(2)/value(3)))
 POPVALUE(2)
 POPVALUE(2)
@@ -284,7 +294,7 @@ CHART(
 ### 2-6. 데이터 밀도 (측정 빈도)
 용도: 시간 구간별 데이터 개수로 센서의 측정 빈도나 누락을 확인합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     $.yield([$.values[0], $.values[1]])
 })
@@ -327,7 +337,7 @@ CHART_BAR3D(
 ### 3-1. 시간 단위 롤업 (평균)
 용도: 지정한 시간 단위로 평균값을 집계합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), AVG(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     $.yield([$.values[0], $.values[1]])
 })
@@ -346,7 +356,7 @@ CHART(
 ### 3-2. 태그 간 비교 (두 태그 오버레이)
 용도: 두 태그의 시계열을 겹쳐서 상관관계를 비교합니다. {TAG1}과 {TAG2}를 교체하세요.
 ```tql
-SQL(`SELECT NAME, TIME, VALUE FROM {TABLE} WHERE NAME IN ('{TAG1}', '{TAG2}') GROUP BY NAME, TIME, VALUE ORDER BY TIME LIMIT 500`)
+SQL(`SELECT NAME, TIME, VALUE FROM {TABLE} WHERE NAME IN ('{TAG1}', '{TAG2}') AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY NAME, TIME, VALUE ORDER BY TIME LIMIT 500`)
 SCRIPT({
     var arr1 = [];
     var arr2 = [];
@@ -379,7 +389,7 @@ CHART(
 ### 3-3. 데이터 카운트 추세
 용도: 시간 구간별 데이터 건수로 데이터 수집 밀도나 결측을 확인합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), COUNT(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     $.yield([$.values[0], $.values[1]])
 })
@@ -398,7 +408,7 @@ CHART(
 ### 3-4. MIN/MAX 엔벨로프 (이상치 범위)
 용도: 시간 구간별 최대/최소 범위로 이상치 패턴을 감지합니다.
 ```tql
-SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
+SQL(`SELECT ROLLUP({UNIT}, 1, TIME), MAX(VALUE), MIN(VALUE) FROM {TABLE} WHERE NAME = '{TAG}' AND TIME BETWEEN TO_DATE('{TIME_START}') AND TO_DATE('{TIME_END}') GROUP BY ROLLUP({UNIT}, 1, TIME) ORDER BY ROLLUP({UNIT}, 1, TIME)`)
 SCRIPT({
     var maxArr = [];
     var minArr = [];

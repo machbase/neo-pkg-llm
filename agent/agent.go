@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"neo-pkg-llm/llm"
 	"neo-pkg-llm/tools"
@@ -72,8 +74,12 @@ type Agent struct {
 	registry  *tools.Registry
 	messages  []llm.Message
 	maxSteps  int
-	advanced  bool     // true = 고급 분석 (TQL templates), false = 기본 분석 (table-based)
-	knownTags []string // list_table_tags 결과를 저장하여 TAG 검증에 사용
+	advanced    bool     // true = 고급 분석 (TQL templates), false = 기본 분석 (table-based)
+	knownTags   []string // list_table_tags 결과를 저장하여 TAG 검증에 사용
+	timeStartDt string   // 시간 범위 시작 (datetime 문자열, 템플릿 {TIME_START} 치환용)
+	timeEndDt   string   // 시간 범위 종료 (datetime 문자열, 템플릿 {TIME_END} 치환용)
+	dataMinDt   string   // 데이터 실제 MIN(TIME) (execute_sql_query에서 캡처)
+	dataMaxDt   string   // 데이터 실제 MAX(TIME) (execute_sql_query에서 캡처)
 }
 
 func NewAgent(llmClient llm.LLMProvider, registry *tools.Registry) *Agent {
@@ -166,6 +172,20 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 				continue
 			}
 
+			// save_tql_file: TO_DATE 시간 범위를 captureMaxTime이 갱신한 최신 값으로 교체
+			if tc.Function.Name == "save_tql_file" && a.timeStartDt != "" && a.timeEndDt != "" {
+				if content, ok := tc.Function.Arguments["tql_content"].(string); ok {
+					toDateRE := regexp.MustCompile(`TIME\s+BETWEEN\s+TO_DATE\('([^']+)'\)\s+AND\s+TO_DATE\('([^']+)'\)`)
+					if m := toDateRE.FindStringSubmatch(content); m != nil {
+						if m[1] != a.timeStartDt || m[2] != a.timeEndDt {
+							replacement := fmt.Sprintf("TIME BETWEEN TO_DATE('%s') AND TO_DATE('%s')", a.timeStartDt, a.timeEndDt)
+							tc.Function.Arguments["tql_content"] = strings.Replace(content, m[0], replacement, 1)
+							fmt.Printf("  [fix] TO_DATE: %s~%s → %s~%s\n", m[1], m[2], a.timeStartDt, a.timeEndDt)
+						}
+					}
+				}
+			}
+
 			result, err := a.registry.ExecuteMap(tc.Function.Name, tc.Function.Arguments)
 			if err != nil {
 				result = fmt.Sprintf("Error: %v", err)
@@ -178,6 +198,11 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 			// list_table_tags 결과에서 태그 목록 캡처
 			if tc.Function.Name == "list_table_tags" && err == nil {
 				a.captureKnownTags(result)
+			}
+
+			// execute_sql_query에서 MIN/MAX(TIME) 결과 캡처 (항상) + 시간 범위 재계산 (timeStartDt 있을 때만)
+			if tc.Function.Name == "execute_sql_query" && err == nil {
+				a.captureDataTimeRange(tc.Function.Arguments, result)
 			}
 
 			a.messages = append(a.messages, llm.Message{
@@ -309,6 +334,11 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 					a.captureKnownTags(result)
 				}
 
+				// execute_sql_query에서 MIN/MAX(TIME) 결과 캡처
+				if tc.Function.Name == "execute_sql_query" && err == nil {
+					a.captureDataTimeRange(tc.Function.Arguments, result)
+				}
+
 				a.messages = append(a.messages, llm.Message{
 					Role:    "tool",
 					Content: result,
@@ -335,6 +365,187 @@ func isAdvancedQuery(query string) bool {
 	return false
 }
 
+// timeRangeRE matches patterns like "최근 3시간", "지난 7일", "최근 30분"
+var timeRangeRE = regexp.MustCompile(`(최근|지난)\s*(\d+)\s*(시간|분|일|주)`)
+
+// timeRangeResult holds parsed time range info.
+type timeRangeResult struct {
+	startMs  string // epoch milliseconds (for dashboard time_start)
+	endMs    string // epoch milliseconds (for dashboard time_end)
+	startDt  string // datetime string e.g. "2026-04-07 13:00:00" (for TQL TO_DATE)
+	endDt    string // datetime string e.g. "2026-04-07 14:00:00" (for TQL TO_DATE)
+	label    string // e.g. "최근 1시간"
+	unit     string // recommended ROLLUP unit: 'sec', 'min', 'hour', 'day'
+}
+
+const dtFormat = "2006-01-02 15:04:05"
+
+// parseTimeRange detects relative time expressions in the query.
+// Returns nil if no time keyword is found.
+func parseTimeRange(query string) *timeRangeResult {
+	now := time.Now()
+
+	var startTime time.Time
+	var label string
+
+	// "오늘" → today 00:00 ~ now
+	if strings.Contains(query, "오늘") {
+		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		label = "오늘"
+	}
+
+	// "최근 N시간/분/일/주", "지난 N시간/분/일/주"
+	if label == "" {
+		m := timeRangeRE.FindStringSubmatch(query)
+		if m != nil {
+			n, _ := strconv.Atoi(m[2])
+			unit := m[3]
+			var d time.Duration
+			switch unit {
+			case "분":
+				d = time.Duration(n) * time.Minute
+			case "시간":
+				d = time.Duration(n) * time.Hour
+			case "일":
+				d = time.Duration(n) * 24 * time.Hour
+			case "주":
+				d = time.Duration(n) * 7 * 24 * time.Hour
+			}
+			startTime = now.Add(-d)
+			label = m[0]
+		}
+	}
+
+	if label == "" {
+		return nil
+	}
+
+	// Select appropriate ROLLUP unit based on duration
+	dur := now.Sub(startTime)
+	rollupUnit := "'day'"
+	switch {
+	case dur <= 2*time.Hour:
+		rollupUnit = "'sec'"
+	case dur <= 24*time.Hour:
+		rollupUnit = "'min'"
+	case dur <= 7*24*time.Hour:
+		rollupUnit = "'hour'"
+	}
+
+	return &timeRangeResult{
+		startMs: strconv.FormatInt(startTime.UnixMilli(), 10),
+		endMs:   strconv.FormatInt(now.UnixMilli(), 10),
+		startDt: startTime.Format(dtFormat),
+		endDt:   now.Format(dtFormat),
+		label:   label,
+		unit:    rollupUnit,
+	}
+}
+
+// captureDataTimeRange intercepts execute_sql_query results containing MIN(TIME)/MAX(TIME).
+// 1. Always stores dataMinDt/dataMaxDt for template expansion fallback.
+// 2. If timeStartDt/timeEndDt (from parseTimeRange) is beyond the data range, recalculates.
+func (a *Agent) captureDataTimeRange(args map[string]interface{}, result string) {
+	sqlQuery, _ := args["sql_query"].(string)
+	upperQuery := strings.ToUpper(sqlQuery)
+	if !strings.Contains(upperQuery, "MAX(TIME)") && !strings.Contains(upperQuery, "MIN(TIME)") {
+		return
+	}
+
+	var minMs, maxMs int64
+	var foundMin, foundMax bool
+
+	trimmed := strings.TrimSpace(result)
+
+	if strings.HasPrefix(trimmed, "{") {
+		// JSON format: {"data":{"columns":["min_time","max_time"],"rows":[[123,456]]}}
+		type jsonResult struct {
+			Data struct {
+				Columns []string        `json:"columns"`
+				Rows    [][]interface{} `json:"rows"`
+			} `json:"data"`
+		}
+		var jr jsonResult
+		if err := json.Unmarshal([]byte(trimmed), &jr); err == nil && len(jr.Data.Rows) > 0 {
+			row := jr.Data.Rows[0]
+			for i, col := range jr.Data.Columns {
+				upper := strings.ToUpper(col)
+				if i < len(row) {
+					var val int64
+					switch v := row[i].(type) {
+					case float64:
+						val = int64(v)
+					case json.Number:
+						val, _ = v.Int64()
+					}
+					if (strings.Contains(upper, "MIN") || strings.HasSuffix(upper, "MIN_TIME")) && !foundMin {
+						minMs = val
+						foundMin = true
+					}
+					if (strings.Contains(upper, "MAX") || strings.HasSuffix(upper, "MAX_TIME")) && !foundMax {
+						maxMs = val
+						foundMax = true
+					}
+				}
+			}
+		}
+	} else {
+		// CSV format: MIN(TIME),MAX(TIME)\n123,456
+		lines := strings.Split(trimmed, "\n")
+		if len(lines) >= 2 {
+			headers := strings.Split(lines[0], ",")
+			values := strings.Split(lines[1], ",")
+			for i, h := range headers {
+				upper := strings.ToUpper(strings.TrimSpace(h))
+				if i < len(values) {
+					if (strings.Contains(upper, "MIN")) && !foundMin {
+						if v, err := strconv.ParseInt(strings.TrimSpace(values[i]), 10, 64); err == nil {
+							minMs = v
+							foundMin = true
+						}
+					}
+					if (strings.Contains(upper, "MAX")) && !foundMax {
+						if v, err := strconv.ParseInt(strings.TrimSpace(values[i]), 10, 64); err == nil {
+							maxMs = v
+							foundMax = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if foundMin {
+		a.dataMinDt = time.UnixMilli(minMs).Format(dtFormat)
+		fmt.Printf("  [capture] MIN(TIME): %d → %s\n", minMs, a.dataMinDt)
+	}
+	if foundMax {
+		maxTime := time.UnixMilli(maxMs)
+		a.dataMaxDt = maxTime.Format(dtFormat)
+		fmt.Printf("  [capture] MAX(TIME): %d → %s\n", maxMs, a.dataMaxDt)
+
+		// If timeStartDt is set (user specified range) and beyond data, recalculate
+		if a.timeStartDt != "" && a.timeEndDt != "" {
+			if currentEnd, err := time.Parse(dtFormat, a.timeEndDt); err == nil {
+				fmt.Printf("  [capture] compare: maxTime=%s, currentEnd=%s, before=%v\n",
+					maxTime.Format(dtFormat), currentEnd.Format(dtFormat), maxTime.Before(currentEnd))
+				if maxTime.Before(currentEnd) {
+					currentStart, _ := time.Parse(dtFormat, a.timeStartDt)
+					dur := currentEnd.Sub(currentStart)
+					a.timeStartDt = maxTime.Add(-dur).Format(dtFormat)
+					a.timeEndDt = maxTime.Format(dtFormat)
+					fmt.Printf("  [TimeRange] 데이터 기반 갱신: %s ~ %s\n", a.timeStartDt, a.timeEndDt)
+				}
+			}
+		} else {
+			fmt.Printf("  [capture] skip recalc: timeStartDt=%q, timeEndDt=%q\n", a.timeStartDt, a.timeEndDt)
+		}
+	}
+	if !foundMin && !foundMax {
+		fmt.Printf("  [capture] no MIN/MAX found in result\n")
+	}
+}
+
 func (a *Agent) initMessages(query string) {
 	// Inject document catalog into system prompt
 	docList, _ := a.registry.ExecuteMap("list_available_documents", nil)
@@ -352,17 +563,31 @@ func (a *Agent) initMessages(query string) {
 
 	// Detect analysis type and set agent mode
 	userContent := query
+	tr := parseTimeRange(query)
+	timeHint := "반드시 SELECT MIN(TIME), MAX(TIME) FROM 테이블 (timeformat='ms')로 시간 범위를 먼저 조회하고, " +
+		"그 결과를 time_start/time_end에 문자열로 전달하세요. now-1h 등 상대값 사용 금지!"
+	if tr != nil {
+		timeHint = fmt.Sprintf("시간 범위가 지정되었습니다. time_start=%s, time_end=%s (%s). "+
+			"이 값을 create_dashboard_with_charts의 time_start, time_end에 그대로 사용하세요. "+
+			"통계 SQL 조회(execute_sql_query) 시에도 WHERE TIME BETWEEN TO_DATE('%s') AND TO_DATE('%s') 조건을 추가하여 이 범위 내 데이터만 조회하세요. "+
+			"ROLLUP UNIT은 %s을 사용하세요. "+
+			"단, 이 시간 범위에 데이터가 없으면 SELECT MAX(TIME) FROM 테이블 (timeformat='ms')로 최신 시점을 확인하고, "+
+			"최신 시점에서 %s 범위를 역산하여 사용하세요.", tr.startMs, tr.endMs, tr.label, tr.startDt, tr.endDt, tr.unit, tr.label)
+		// Store datetime strings for TQL template {TIME_START}/{TIME_END} substitution
+		a.timeStartDt = tr.startDt
+		a.timeEndDt = tr.endDt
+	} else {
+		a.timeStartDt = ""
+		a.timeEndDt = ""
+	}
 	if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
 		a.advanced = isAdvancedQuery(query)
 		if a.advanced {
-			userContent += "\n\n[시스템 힌트: 고급 분석 키워드가 감지되었습니다. 고급 분석(TQL 템플릿) 절차를 따르세요. " +
-				"반드시 SELECT MIN(TIME), MAX(TIME) FROM 테이블 (timeformat='ms')로 시간 범위를 먼저 조회하고, " +
-				"그 결과를 time_start/time_end에 문자열로 전달하세요. now-1h 등 상대값 사용 금지!]"
+			userContent += "\n\n[시스템 힌트: 고급 분석 키워드가 감지되었습니다. 고급 분석(TQL 템플릿) 절차를 따르세요. " + timeHint + "]"
 		} else {
 			userContent += "\n\n[시스템 힌트: 기본 분석 요청입니다. 반드시 기본 분석(table-based 차트, create_dashboard_with_charts) 절차를 따르세요. " +
 				"TQL 파일/템플릿/save_tql_file/create_folder를 절대 사용하지 마세요. create_dashboard_with_charts 한 번으로 대시보드를 완성하세요. " +
-				"반드시 SELECT MIN(TIME), MAX(TIME) FROM 테이블 (timeformat='ms')로 시간 범위를 먼저 조회하고, " +
-				"그 결과를 time_start/time_end에 문자열로 전달하세요. now-1h 등 상대값 사용 금지!]"
+				timeHint + "]"
 		}
 	}
 
@@ -400,6 +625,9 @@ func (a *Agent) ContinueMessages(query string) {
 				a.advanced = false
 				userContent += "\n\n[기본 분석(table-based 차트) 절차를 따르세요.]"
 			}
+		}
+		if tr := parseTimeRange(query); tr != nil {
+			userContent += fmt.Sprintf("\n\n[시간 범위: time_start=%s, time_end=%s (%s). UNIT은 %s 사용. 이 값을 그대로 사용하세요.]", tr.startMs, tr.endMs, tr.label, tr.unit)
 		}
 		a.messages = []llm.Message{a.messages[0], {Role: "user", Content: userContent}}
 	} else {
@@ -490,6 +718,16 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 			}
 		}
 
+		// time_start/time_end: float (scientific notation) → integer string
+		for _, tk := range []string{"time_start", "time_end"} {
+			if v, ok := args[tk]; ok {
+				switch n := v.(type) {
+				case float64:
+					args[tk] = strconv.FormatInt(int64(n), 10)
+				}
+			}
+		}
+
 		// Literal \n → real newline
 		for k, v := range args {
 			if s, ok := v.(string); ok && strings.Contains(s, "\\n") {
@@ -497,12 +735,18 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 			}
 		}
 
-		// charts: list/dict → JSON string
+		// charts: list/dict → JSON string, single quotes → double quotes
 		if charts, ok := args["charts"]; ok {
 			switch c := charts.(type) {
 			case []any, map[string]any:
 				data, _ := json.Marshal(c)
 				args["charts"] = string(data)
+			case string:
+				// Ollama(qwen) sends Python dict style with single quotes
+				if strings.Contains(c, "'") && !strings.Contains(c, "\"") {
+					args["charts"] = strings.ReplaceAll(c, "'", "\"")
+					fmt.Printf("  [fix] charts single quotes → double quotes\n")
+				}
 			}
 		}
 
@@ -599,6 +843,17 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 				if match[6] != "" {
 					params["TAG2"] = match[6]
 				}
+				// Inject time range
+				if a.timeStartDt != "" {
+					params["TIME_START"] = a.timeStartDt
+					params["TIME_END"] = a.timeEndDt
+				} else if a.dataMinDt != "" && a.dataMaxDt != "" {
+					params["TIME_START"] = a.dataMinDt
+					params["TIME_END"] = a.dataMaxDt
+				} else {
+					params["TIME_START"] = "1970-01-01 00:00:00"
+					params["TIME_END"] = time.Now().Format(dtFormat)
+				}
 				expanded, err := ExpandTemplate(match[1], params)
 				if err == nil {
 					args["tql_content"] = expanded
@@ -638,6 +893,23 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 							}
 						} else if tag != "" {
 							params["TAG"] = tag
+						}
+						// raw TQL에서 TO_DATE 추출 → 있으면 그 값 우선 사용
+						toDateExtractRE := regexp.MustCompile(`TO_DATE\('([^']+)'\)`)
+						dates := toDateExtractRE.FindAllStringSubmatch(tql, 2)
+						if len(dates) >= 2 {
+							params["TIME_START"] = dates[0][1]
+							params["TIME_END"] = dates[1][1]
+						} else if a.timeStartDt != "" {
+							params["TIME_START"] = a.timeStartDt
+							params["TIME_END"] = a.timeEndDt
+						} else if a.dataMinDt != "" && a.dataMaxDt != "" {
+							params["TIME_START"] = a.dataMinDt
+							params["TIME_END"] = a.dataMaxDt
+						} else {
+							// 시간 범위도 없고 데이터 범위도 캡처 안 됨 → 건너뛰기
+							fmt.Printf("  [skip] Raw TQL auto-expand skipped (no time range)\n")
+							break
 						}
 						expanded, err := ExpandTemplate(idMatch, params)
 						if err == nil {
@@ -1094,7 +1366,7 @@ func isAllDigits(s string) bool {
 // dashboard title fix, etc.) always finds the expected key.
 var aliasMap = map[string]map[string]string{
 	"save_tql_file": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename", "tql_path": "filename",
 		"script": "tql_content", "content": "tql_content", "code": "tql_content", "tql_script": "tql_content", "tql": "tql_content",
 	},
 	"execute_tql_script": {

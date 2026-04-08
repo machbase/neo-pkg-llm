@@ -105,7 +105,7 @@ func ExpandTemplate(templateID string, params map[string]string) (string, error)
 	}
 
 	// Warn about unsubstituted placeholders
-	unmatched := regexp.MustCompile(`\{(TABLE|TAG|TAG1|TAG2|UNIT)\}`).FindAllString(code, -1)
+	unmatched := regexp.MustCompile(`\{(TABLE|TAG|TAG1|TAG2|UNIT|TIME_START|TIME_END)\}`).FindAllString(code, -1)
 	if len(unmatched) > 0 {
 		fmt.Printf("[Templates] WARNING: unsubstituted placeholders: %v\n", unmatched)
 	}
