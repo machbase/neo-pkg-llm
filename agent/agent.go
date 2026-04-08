@@ -160,6 +160,26 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 				}
 			}
 
+			// 대시보드 시간 보정 (도구 실행 직전, dataMinDt/dataMaxDt가 캡처된 후)
+			if dashboardTools[tc.Function.Name] {
+				startDt, endDt := a.timeStartDt, a.timeEndDt
+				if startDt == "" && a.dataMinDt != "" {
+					startDt = a.dataMinDt
+				}
+				if endDt == "" && a.dataMaxDt != "" {
+					endDt = a.dataMaxDt
+				}
+				if startDt != "" && endDt != "" {
+					if startTime, err := time.Parse(dtFormat, startDt); err == nil {
+						tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
+					}
+					if endTime, err := time.Parse(dtFormat, endDt); err == nil {
+						tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
+					}
+					fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
+				}
+			}
+
 			// TAG 검증: TQL 관련 도구 호출 시 태그명 확인
 			if tagErr := a.validateTagInArgs(tc.Function.Name, tc.Function.Arguments); tagErr != "" {
 				result := tagErr
@@ -300,6 +320,40 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 					Step: step,
 					Name: tc.Function.Name,
 					Args: tc.Function.Arguments,
+				}
+
+				// save_tql_file: TO_DATE 시간 범위를 captureMaxTime이 갱신한 최신 값으로 교체
+				if tc.Function.Name == "save_tql_file" && a.timeStartDt != "" && a.timeEndDt != "" {
+					if content, ok := tc.Function.Arguments["tql_content"].(string); ok {
+						toDateRE := regexp.MustCompile(`TIME\s+BETWEEN\s+TO_DATE\('([^']+)'\)\s+AND\s+TO_DATE\('([^']+)'\)`)
+						if m := toDateRE.FindStringSubmatch(content); m != nil {
+							if m[1] != a.timeStartDt || m[2] != a.timeEndDt {
+								replacement := fmt.Sprintf("TIME BETWEEN TO_DATE('%s') AND TO_DATE('%s')", a.timeStartDt, a.timeEndDt)
+								tc.Function.Arguments["tql_content"] = strings.Replace(content, m[0], replacement, 1)
+								fmt.Printf("  [fix] TO_DATE: %s~%s → %s~%s\n", m[1], m[2], a.timeStartDt, a.timeEndDt)
+							}
+						}
+					}
+				}
+
+				// 대시보드 시간 보정 (도구 실행 직전, dataMinDt/dataMaxDt가 캡처된 후)
+				if dashboardTools[tc.Function.Name] {
+					startDt, endDt := a.timeStartDt, a.timeEndDt
+					if startDt == "" && a.dataMinDt != "" {
+						startDt = a.dataMinDt
+					}
+					if endDt == "" && a.dataMaxDt != "" {
+						endDt = a.dataMaxDt
+					}
+					if startDt != "" && endDt != "" {
+						if startTime, err := time.Parse(dtFormat, startDt); err == nil {
+							tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
+						}
+						if endTime, err := time.Parse(dtFormat, endDt); err == nil {
+							tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
+						}
+						fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
+					}
 				}
 
 				// TAG 검증: TQL 관련 도구 호출 시 태그명 확인
@@ -448,7 +502,9 @@ func parseTimeRange(query string) *timeRangeResult {
 func (a *Agent) captureDataTimeRange(args map[string]interface{}, result string) {
 	sqlQuery, _ := args["sql_query"].(string)
 	upperQuery := strings.ToUpper(sqlQuery)
-	if !strings.Contains(upperQuery, "MAX(TIME)") && !strings.Contains(upperQuery, "MIN(TIME)") {
+	hasMinMax := strings.Contains(upperQuery, "MAX(TIME)") || strings.Contains(upperQuery, "MIN(TIME)")
+	hasOrderLimit := strings.Contains(upperQuery, "ORDER BY TIME") && strings.Contains(upperQuery, "LIMIT 1")
+	if !hasMinMax && !hasOrderLimit {
 		return
 	}
 
@@ -490,7 +546,7 @@ func (a *Agent) captureDataTimeRange(args map[string]interface{}, result string)
 			}
 		}
 	} else {
-		// CSV format: MIN(TIME),MAX(TIME)\n123,456
+		// CSV format: MIN(TIME),MAX(TIME)\n123,456  or  TIME,VALUE\n123,84.12
 		lines := strings.Split(trimmed, "\n")
 		if len(lines) >= 2 {
 			headers := strings.Split(lines[0], ",")
@@ -499,15 +555,27 @@ func (a *Agent) captureDataTimeRange(args map[string]interface{}, result string)
 				upper := strings.ToUpper(strings.TrimSpace(h))
 				if i < len(values) {
 					if (strings.Contains(upper, "MIN")) && !foundMin {
-						if v, err := strconv.ParseInt(strings.TrimSpace(values[i]), 10, 64); err == nil {
-							minMs = v
+						if ms, ok := parseTimeValue(strings.TrimSpace(values[i])); ok {
+							minMs = ms
 							foundMin = true
 						}
 					}
 					if (strings.Contains(upper, "MAX")) && !foundMax {
-						if v, err := strconv.ParseInt(strings.TrimSpace(values[i]), 10, 64); err == nil {
-							maxMs = v
+						if ms, ok := parseTimeValue(strings.TrimSpace(values[i])); ok {
+							maxMs = ms
 							foundMax = true
+						}
+					}
+					// ORDER BY TIME DESC/ASC LIMIT 1: treat TIME column as MAX or MIN
+					if hasOrderLimit && upper == "TIME" && !foundMax && !foundMin {
+						if ms, ok := parseTimeValue(strings.TrimSpace(values[i])); ok {
+							if strings.Contains(upperQuery, "DESC") {
+								maxMs = ms
+								foundMax = true
+							} else {
+								minMs = ms
+								foundMin = true
+							}
 						}
 					}
 				}
@@ -544,6 +612,20 @@ func (a *Agent) captureDataTimeRange(args map[string]interface{}, result string)
 	if !foundMin && !foundMax {
 		fmt.Printf("  [capture] no MIN/MAX found in result\n")
 	}
+}
+
+// parseTimeValue parses a time value as epoch milliseconds (int64) or datetime string.
+func parseTimeValue(s string) (int64, bool) {
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v, true
+	}
+	// Try datetime formats: "2006-01-02 15:04:05", "2006-01-02"
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UnixMilli(), true
+		}
+	}
+	return 0, false
 }
 
 func (a *Agent) initMessages(query string) {
@@ -615,6 +697,18 @@ func (a *Agent) HasHistory() bool {
 // ContinueMessages appends a new user query to existing conversation history.
 // For Ollama, resets to [system + new query] with a short analysis hint.
 func (a *Agent) ContinueMessages(query string) {
+	// 이전 턴의 시간 범위 값 리셋
+	a.timeStartDt = ""
+	a.timeEndDt = ""
+	a.dataMinDt = ""
+	a.dataMaxDt = ""
+
+	// 새 질문에 시간 지정이 있으면 다시 설정
+	if tr := parseTimeRange(query); tr != nil {
+		a.timeStartDt = tr.startDt
+		a.timeEndDt = tr.endDt
+	}
+
 	if _, ok := a.llm.(*llm.OllamaClient); ok {
 		userContent := query
 		if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
@@ -772,11 +866,19 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 			}
 		}
 
-		// time_start/time_end: nanoseconds → milliseconds
+		// time_start/time_end: normalize to epoch milliseconds
 		for _, key := range []string{"time_start", "time_end"} {
-			if v, ok := args[key].(string); ok && len(v) > 15 && isAllDigits(v) {
-				// Convert nanoseconds to milliseconds
-				args[key] = v[:len(v)-6]
+			if v, ok := args[key].(string); ok {
+				if len(v) > 15 && isAllDigits(v) {
+					// nanoseconds → milliseconds
+					args[key] = v[:len(v)-6]
+				} else if !isAllDigits(v) {
+					// datetime string → epoch milliseconds
+					if ms, ok := parseTimeValue(v); ok {
+						args[key] = strconv.FormatInt(ms, 10)
+						fmt.Printf("  [fix] %s: %s → %d\n", key, v, ms)
+					}
+				}
 			}
 		}
 

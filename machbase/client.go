@@ -17,6 +17,7 @@ type Client struct {
 	User     string
 	Password string
 	client   *http.Client
+	tqlClient *http.Client
 
 	mu       sync.Mutex
 	jwtToken string
@@ -25,10 +26,11 @@ type Client struct {
 
 func NewClient(baseURL, user, password string) *Client {
 	return &Client{
-		BaseURL:  strings.TrimRight(baseURL, "/"),
-		User:     user,
-		Password: password,
-		client:   &http.Client{Timeout: 60 * time.Second},
+		BaseURL:   strings.TrimRight(baseURL, "/"),
+		User:      user,
+		Password:  password,
+		client:    &http.Client{Timeout: 60 * time.Second},
+		tqlClient: &http.Client{Timeout: 5 * time.Minute},
 	}
 }
 
@@ -179,9 +181,8 @@ func (c *Client) QuerySQL(sql, timeformat, tz, format string) (string, error) {
 }
 
 // ExecuteTQL executes a TQL script via POST /db/tql.
-func (c *Client) ExecuteTQL(tqlContent string, timeout time.Duration) (string, error) {
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Post(
+func (c *Client) ExecuteTQL(tqlContent string) (string, error) {
+	resp, err := c.tqlClient.Post(
 		c.BaseURL+"/db/tql",
 		"text/plain",
 		strings.NewReader(tqlContent),

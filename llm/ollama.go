@@ -84,14 +84,19 @@ func ensureOllamaRunning(baseURL string) {
 	fmt.Println("[Ollama] WARNING: Server did not become ready in 15s")
 }
 
-// SetNumKeep estimates the system prompt token count from string length and sets num_keep.
-// Uses ~1.5 chars/token for CJK-heavy text (conservative estimate to avoid truncation).
+// OllamaSystemPromptTokens is the measured token count of the full system prompt
+// (OllamaSystemPrompt + document catalog + /no_think) on qwen3:8b.
+// Measured via Ollama /api/generate with num_predict=0, num_ctx=40960.
+// Update this value when OllamaSystemPrompt or the document catalog changes.
+const OllamaSystemPromptTokens = 8300
+
+// SetNumKeep sets num_keep to the pre-measured system prompt token count.
 func (o *OllamaClient) SetNumKeep(systemPrompt string) {
 	if systemPrompt == "" {
 		return
 	}
-	o.numKeep = len(systemPrompt) + 200
-	fmt.Printf("[Ollama] num_keep set to %d (estimated from %d chars)\n", o.numKeep, len(systemPrompt))
+	o.numKeep = OllamaSystemPromptTokens
+	fmt.Printf("[Ollama] num_keep set to %d (pre-measured token count)\n", o.numKeep)
 }
 
 // --- Ollama native API types ---

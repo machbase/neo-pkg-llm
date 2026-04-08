@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 )
 
 func (r *Registry) registerTQLTools() {
@@ -25,9 +24,7 @@ func (r *Registry) registerTQLTools() {
 			if tql == "" {
 				return "", fmt.Errorf("tql_content is required")
 			}
-			timeout := argInt(args, "timeout_seconds", 60)
-
-			result, err := r.client.ExecuteTQL(tql, time.Duration(timeout)*time.Second)
+			result, err := r.client.ExecuteTQL(tql)
 			if err != nil {
 				return "", fmt.Errorf("execute_tql_script failed: %w", err)
 			}
@@ -56,7 +53,7 @@ func (r *Registry) registerTQLTools() {
 			if tql == "" {
 				return "", fmt.Errorf("tql_script is required")
 			}
-			result, err := r.client.ExecuteTQL(tql, 30*time.Second)
+			result, err := r.client.ExecuteTQL(tql)
 			if err != nil {
 				return fmt.Sprintf("VALIDATION FAILED: %v", err), nil
 			}
@@ -102,7 +99,7 @@ func (r *Registry) registerTQLTools() {
 
 			// Validate TQL by execution first
 			if isTQL {
-				testResult, err := r.client.ExecuteTQL(tqlContent, 30*time.Second)
+				testResult, err := r.client.ExecuteTQL(tqlContent)
 				if err != nil {
 					return fmt.Sprintf("TQL validation failed (not saved): %v", err), nil
 				}
@@ -117,7 +114,7 @@ func (r *Registry) registerTQLTools() {
 					if tableName != "" {
 						if created := r.createRollupForTable(tableName); created {
 							// Retry execution after rollup creation
-							testResult, err = r.client.ExecuteTQL(tqlContent, 30*time.Second)
+							testResult, err = r.client.ExecuteTQL(tqlContent)
 							if err != nil {
 								return fmt.Sprintf("TQL validation failed after rollup creation (not saved): %v", err), nil
 							}
