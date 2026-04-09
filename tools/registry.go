@@ -115,6 +115,7 @@ func (r *Registry) registerAll() {
 	r.registerTQLTools()
 	r.registerFileTools()
 	r.registerDashboardTools()
+	r.registerReportTools()
 	r.registerDocTools()
 	r.registerUtilTools()
 	r.registerTimerTools()

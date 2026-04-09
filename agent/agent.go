@@ -61,6 +61,7 @@ var (
 		"update_dashboard_time_range":  true,
 		"preview_dashboard":            true,
 		"get_dashboard":                true,
+		"save_html_report":             true,
 	}
 
 	tqlFuncRE     = regexp.MustCompile(`\)[ \t]*(SQL_SELECT|SQL|SCRIPT|CHART_LINE|CHART_BAR3D|CHART|MAPVALUE|POPVALUE|MAPKEY|GROUPBYKEY|FFT|FLATTEN|PUSHKEY|CSV)\(`)
@@ -75,6 +76,7 @@ type Agent struct {
 	messages  []llm.Message
 	maxSteps  int
 	advanced    bool     // true = 고급 분석 (TQL templates), false = 기본 분석 (table-based)
+	reportMode  bool     // true = HTML 리포트 생성 모드
 	knownTags   []string // list_table_tags 결과를 저장하여 TAG 검증에 사용
 	timeStartDt string   // 시간 범위 시작 (datetime 문자열, 템플릿 {TIME_START} 치환용)
 	timeEndDt   string   // 시간 범위 종료 (datetime 문자열, 템플릿 {TIME_END} 치환용)
@@ -124,6 +126,9 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 		if len(msg.ToolCalls) == 0 {
 			if a.advanced {
 				msg = a.guardChartOmission(ctx, msg)
+			}
+			if a.reportMode {
+				msg = a.guardReportOmission(ctx, msg)
 			}
 
 			if len(msg.ToolCalls) == 0 {
@@ -285,6 +290,9 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 				if a.advanced {
 					msg = a.guardChartOmission(ctx, msg)
 				}
+				if a.reportMode {
+					msg = a.guardReportOmission(ctx, msg)
+				}
 
 				if len(msg.ToolCalls) == 0 {
 					if msg.Content == "" {
@@ -412,6 +420,19 @@ var advancedKeywords = []string{"심층", "다각도", "고급", "fft", "rms"}
 func isAdvancedQuery(query string) bool {
 	q := strings.ToLower(query)
 	for _, kw := range advancedKeywords {
+		if strings.Contains(q, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// reportKeywords triggers HTML report generation mode.
+var reportKeywords = []string{"리포트", "보고서", "report"}
+
+func isReportQuery(query string) bool {
+	q := strings.ToLower(query)
+	for _, kw := range reportKeywords {
 		if strings.Contains(q, kw) {
 			return true
 		}
@@ -662,7 +683,14 @@ func (a *Agent) initMessages(query string) {
 		a.timeStartDt = ""
 		a.timeEndDt = ""
 	}
-	if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
+	if isReportQuery(query) {
+		a.reportMode = true
+		a.advanced = false
+		userContent += "\n\n[시스템 힌트: HTML 분석 리포트 요청입니다. " +
+			"반드시 save_html_report 도구의 설명에 있는 절차를 따르세요. " +
+			"create_dashboard_with_charts, create_dashboard, add_chart_to_dashboard, save_tql_file, create_folder 사용 절대 금지! " +
+			"오직 save_html_report만 사용하세요. " + timeHint + "]"
+	} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
 		a.advanced = isAdvancedQuery(query)
 		if a.advanced {
 			userContent += "\n\n[시스템 힌트: 고급 분석 키워드가 감지되었습니다. 고급 분석(TQL 템플릿) 절차를 따르세요. " + timeHint + "]"
@@ -711,7 +739,11 @@ func (a *Agent) ContinueMessages(query string) {
 
 	if _, ok := a.llm.(*llm.OllamaClient); ok {
 		userContent := query
-		if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
+		if isReportQuery(query) {
+			a.reportMode = true
+			a.advanced = false
+			userContent += "\n\n[HTML 분석 리포트 절차를 따르세요. save_html_report로 저장하세요.]"
+		} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
 			if isAdvancedQuery(query) {
 				a.advanced = true
 				userContent += "\n\n[고급 분석(TQL 템플릿) 절차를 따르세요.]"
@@ -1191,6 +1223,42 @@ func (a *Agent) guardChartOmission(ctx context.Context, msg llm.Message) llm.Mes
 				"대시보드: %s\n아래 호출을 모두 실행하세요:\n%s\n그 후 preview_dashboard를 호출하세요.",
 			len(savedTQLs), dashFn, strings.Join(cmds, "\n"),
 		),
+	})
+
+	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
+	if err != nil {
+		return msg
+	}
+	return a.fixToolCalls(resp.Message)
+}
+
+// --- Guard: report omission check ---
+
+func (a *Agent) guardReportOmission(ctx context.Context, msg llm.Message) llm.Message {
+	if msg.Content == "" || len(msg.ToolCalls) > 0 {
+		return msg
+	}
+
+	// Check if save_html_report was ever called (success or fail)
+	allMsgs := append(a.messages, msg)
+	for _, m := range allMsgs {
+		for _, tc := range m.ToolCalls {
+			if tc.Function.Name == "save_html_report" {
+				return msg // already attempted
+			}
+		}
+		// Also check tool results mentioning report
+		if strings.Contains(m.Content, "Report saved") || strings.Contains(m.Content, "INCOMPLETE") {
+			return msg
+		}
+	}
+
+	fmt.Println("[Agent] Report mode but save_html_report not called → prompting")
+
+	a.messages = append(a.messages, msg)
+	a.messages = append(a.messages, llm.Message{
+		Role:    "user",
+		Content: "아직 HTML 리포트가 저장되지 않았습니다. save_html_report를 사용하여 분석 결과를 HTML 보고서로 저장하세요.",
 	})
 
 	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
