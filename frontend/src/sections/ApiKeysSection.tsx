@@ -1,75 +1,62 @@
-import type { ApiProvider, ProviderConfig, OllamaConfig, ToastType } from '../types/settings';
+import type { ApiProvider, ProviderConfig, OllamaConfig } from '../types/settings'
 
-type AnyProvider = ApiProvider | 'ollama';
+type AnyProvider = ApiProvider | 'ollama'
 
 interface Props {
-  claude:  ProviderConfig;
-  chatgpt: ProviderConfig;
-  gemini:  ProviderConfig;
-  ollama:  OllamaConfig;
-  onKeyChange: (provider: ApiProvider, key: string) => void;
-  onOllamaUrlChange: (url: string) => void;
-  showToast: (message: string, type: ToastType) => void;
+    claude: ProviderConfig
+    chatgpt: ProviderConfig
+    gemini: ProviderConfig
+    ollama: OllamaConfig
+    onKeyChange: (provider: ApiProvider, key: string) => void
+    onOllamaUrlChange: (url: string) => void
 }
 
-const PROVIDER_META: Record<AnyProvider, { label: string; placeholder: string; fieldLabel: string }> = {
-  claude:  { label: 'Claude',  placeholder: 'sk-ant-api03-...', fieldLabel: 'API Key' },
-  chatgpt: { label: 'ChatGPT', placeholder: 'sk-proj-...',      fieldLabel: 'API Key' },
-  gemini:  { label: 'Gemini',  placeholder: 'AIzaSy...',        fieldLabel: 'API Key' },
-  ollama:  { label: 'Ollama',  placeholder: 'http://localhost:11434', fieldLabel: 'Base URL' },
-};
+const PROVIDER_META: Record<AnyProvider, { label: string; placeholder: string }> = {
+    claude: { label: 'Claude', placeholder: 'sk-ant-api03-...' },
+    chatgpt: { label: 'ChatGPT', placeholder: 'sk-proj-...' },
+    gemini: { label: 'Gemini', placeholder: 'AIzaSy...' },
+    ollama: { label: 'Ollama', placeholder: 'http://localhost:11434' },
+}
 
-const ALL_PROVIDERS: AnyProvider[] = ['claude', 'chatgpt', 'gemini', 'ollama'];
+const ALL_PROVIDERS: AnyProvider[] = ['claude', 'chatgpt', 'gemini', 'ollama']
 
-export function ApiKeysSection({
-  claude, chatgpt, gemini, ollama,
-  onKeyChange, onOllamaUrlChange,
-}: Props) {
-  const getValue = (p: AnyProvider): string => {
-    if (p === 'ollama') return ollama.base_url;
-    return { claude, chatgpt, gemini }[p].api_key;
-  };
-
-  const handleChange = (p: AnyProvider, value: string) => {
-    if (p === 'ollama') {
-      onOllamaUrlChange(value);
-    } else {
-      onKeyChange(p, value);
+export function ApiKeysSection({ claude, chatgpt, gemini, ollama, onKeyChange, onOllamaUrlChange }: Props) {
+    const getValue = (p: AnyProvider): string => {
+        if (p === 'ollama') return ollama.base_url
+        return { claude, chatgpt, gemini }[p].api_key
     }
-  };
 
-  return (
-    <div className="panel-card">
-      <div className="panel-card-head">
-        <div>
-          <h3>API Keys &amp; Endpoints</h3>
-          <p>LLM provider authentication keys and endpoints</p>
+    const handleChange = (p: AnyProvider, value: string) => {
+        if (p === 'ollama') {
+            onOllamaUrlChange(value)
+        } else {
+            onKeyChange(p, value)
+        }
+    }
+
+    return (
+        <div className="card">
+            <div className="card-title">
+                <div>
+                    <h3>API Keys & Endpoints</h3>
+                    <p className="text-sm text-on-surface-secondary mt-1">LLM provider authentication keys and endpoints</p>
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+                {ALL_PROVIDERS.map((p) => (
+                    <div key={p} className="flex items-center gap-3">
+                        <span className={`badge badge-${p} shrink-0`}>{PROVIDER_META[p].label}</span>
+                        <input
+                            type={p === 'ollama' ? 'text' : 'password'}
+                            className="flex-1 min-w-0"
+                            placeholder={PROVIDER_META[p].placeholder}
+                            value={getValue(p)}
+                            onChange={(e) => handleChange(p, e.target.value)}
+                        />
+                    </div>
+                ))}
+            </div>
         </div>
-      </div>
-
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th style={{ width: 110 }}>Provider</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ALL_PROVIDERS.map((p) => (
-            <tr key={p}>
-              <td><span className={`badge badge-${p}`}>{PROVIDER_META[p].label}</span></td>
-              <td>
-                <input
-                  type={p === 'ollama' ? 'text' : 'password'}
-                  placeholder={PROVIDER_META[p].placeholder}
-                  value={getValue(p)}
-                  onChange={(e) => handleChange(p, e.target.value)}
-                />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+    )
 }

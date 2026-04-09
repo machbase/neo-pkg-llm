@@ -1,46 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Sidebar } from "./components/Sidebar";
-// import { ServerSection } from "./sections/ServerSection";
+import { useCallback, useEffect, useState } from "react";
+import { useApp } from "./context/AppContext";
+import { getConfigList, getConfig, deleteConfig, createConfig, updateConfig } from "./services/settingsApi";
+import { defaultConfig } from "./types/settings";
+import { getCurrentUser } from "./utils/auth";
 import { MachbaseSection } from "./sections/MachbaseSection";
 import { ApiKeysSection } from "./sections/ApiKeysSection";
 import { ModelsSection } from "./sections/ModelsSection";
-import { ActionsSection } from "./sections/ActionsSection";
-import { getConfigList, getConfig, deleteConfig } from "./services/settingsApi";
-import { defaultConfig } from "./types/settings";
-import { getCurrentUser, isSysUser } from "./utils/auth";
-import type { AppConfig, ModelProvider, ToastItem, ToastType } from "./types/settings";
+import { Chat } from "./components/chat/Chat";
+import Icon from "./components/common/Icon";
+import ConfirmDialog from "./components/common/ConfirmDialog";
+import Toast from "./components/common/Toast";
+import type { AppConfig, ModelProvider } from "./types/settings";
 
-export function App() {
-    const [configs, setConfigs] = useState<string[]>([]);
-    const [selectedConfig, setSelectedConfig] = useState<string | null>(null);
+type AppTab = "settings" | "chat" | null;
+
+export default function App() {
+    const { selectedConfig, setSelectedConfig, notify } = useApp();
+    const [activeTab, setActiveTab] = useState<AppTab | null>(null);
     const [config, setConfig] = useState<AppConfig>(defaultConfig());
-    const [toasts, setToasts] = useState<ToastItem[]>([]);
-    const [refreshing, setRefreshing] = useState(false);
-    const toastTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-
-    const showToast = useCallback((message: string, type: ToastType) => {
-        const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-        setToasts((prev) => [...prev, { id, message, type }]);
-        const timer = setTimeout(() => {
-            setToasts((prev) => prev.filter((t) => t.id !== id));
-            toastTimers.current.delete(id);
-        }, 3000);
-        toastTimers.current.set(id, timer);
-    }, []);
+    const [saving, setSaving] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     const loadConfigList = useCallback(async () => {
         try {
             const all = await getConfigList();
             const user = getCurrentUser();
-            // sys user sees everything; other users see only their own config
-            const list = isSysUser() || !user ? all : all.filter((name) => name === user);
-            setConfigs(list);
-            return list;
+            return !user ? all : all.filter((name) => name === user);
         } catch {
-            showToast("Failed to load config list.", "error");
+            notify("Failed to load config list.", "error");
             return [];
         }
-    }, [showToast]);
+    }, [notify]);
 
     const loadConfig = useCallback(
         async (name: string) => {
@@ -49,71 +39,73 @@ export function App() {
                 setConfig(data);
                 setSelectedConfig(name);
             } catch {
-                showToast(`Failed to load config "${name}".`, "error");
+                notify(`Failed to load config "${name}".`, "error");
             }
         },
-        [showToast]
+        [notify, setSelectedConfig]
     );
+
+    const currentUser = getCurrentUser() ?? "sys";
 
     useEffect(() => {
         (async () => {
             const list = await loadConfigList();
-            if (list.length > 0) {
-                await loadConfig(list[0]);
+            if (list.includes(currentUser)) {
+                await loadConfig(currentUser);
+                setActiveTab("chat");
+            } else {
+                setConfig((prev) => ({
+                    ...prev,
+                    machbase: {
+                        ...prev.machbase,
+                        host: "127.0.0.1",
+                        port: "5656",
+                        user: currentUser,
+                    },
+                }));
+                setActiveTab("settings");
             }
         })();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const handleRefresh = useCallback(async () => {
-        setRefreshing(true);
-        await loadConfigList();
-        setRefreshing(false);
-    }, [loadConfigList]);
-
-    const handleSelectConfig = useCallback(
-        (name: string) => {
-            loadConfig(name);
-        },
-        [loadConfig]
-    );
-
-    const handleNewConfig = useCallback(() => {
-        setSelectedConfig(null);
-        setConfig(defaultConfig());
-    }, []);
-
-    const handleDelete = useCallback(
-        async (name: string) => {
-            try {
-                await deleteConfig(name);
-                showToast(`Config "${name}" deleted.`, "success");
-                const list = await loadConfigList();
-                if (selectedConfig === name) {
-                    if (list.length > 0) {
-                        await loadConfig(list[0]);
-                    } else {
-                        setSelectedConfig(null);
-                        setConfig(defaultConfig());
-                    }
-                }
-            } catch (e) {
-                showToast(`Delete failed: ${e instanceof Error ? e.message : "unknown error"}`, "error");
+    const handleDelete = useCallback(async () => {
+        if (!selectedConfig) return;
+        try {
+            await deleteConfig(selectedConfig);
+            notify(`Config "${selectedConfig}" deleted.`, "success");
+            const list = await loadConfigList();
+            if (list.length > 0) {
+                await loadConfig(list[0]);
+            } else {
+                setSelectedConfig(null);
+                setConfig(defaultConfig());
             }
-        },
-        [showToast, loadConfigList, loadConfig, selectedConfig]
-    );
+        } catch (e) {
+            notify(`Delete failed: ${e instanceof Error ? e.message : "unknown error"}`, "error");
+        }
+        setShowDeleteConfirm(false);
+    }, [notify, loadConfigList, loadConfig, selectedConfig, setSelectedConfig]);
 
-    const handleSaved = useCallback(
-        async (name: string) => {
+    const handleSave = useCallback(async () => {
+        setSaving(true);
+        try {
+            const isNew = selectedConfig === null;
+            let savedName: string;
+            if (isNew) {
+                savedName = await createConfig(config);
+                notify(`Config "${savedName}" created.`, "success");
+            } else {
+                savedName = await updateConfig(selectedConfig, config);
+                notify(`Config "${savedName}" saved.`, "success");
+            }
             await loadConfigList();
-            setSelectedConfig(name);
-        },
-        [loadConfigList]
-    );
-
-    // const handleServerChange = useCallback((server: AppConfig["server"]) => {
-    //     setConfig((prev) => ({ ...prev, server }));
-    // }, []);
+            setSelectedConfig(savedName);
+            setActiveTab("chat");
+        } catch (e) {
+            notify(`Save failed: ${e instanceof Error ? e.message : "unknown error"}`, "error");
+        }
+        setSaving(false);
+    }, [config, selectedConfig, notify, loadConfigList, setSelectedConfig]);
 
     const handleMachbaseChange = useCallback((machbase: AppConfig["machbase"]) => {
         setConfig((prev) => ({ ...prev, machbase }));
@@ -138,55 +130,70 @@ export function App() {
     }, []);
 
     return (
-        <div className="settings-shell">
-            <Sidebar
-                configs={configs}
-                selectedConfig={selectedConfig}
-                onSelectConfig={handleSelectConfig}
-                onNewConfig={handleNewConfig}
-                onRefresh={handleRefresh}
-                onDelete={handleDelete}
-                loading={refreshing}
-                refreshing={refreshing}
-            />
-
-            <main className="content-shell">
-                <section className="content-area">
-                    <header className="content-header">
-                        <h1>{selectedConfig === null ? "New Configuration" : `Configuration: ${selectedConfig}`}</h1>
-                        <p>Manage LLM providers, API keys, models, and connection settings.</p>
-                    </header>
-
-                    <div className="sections-stack">
-                        {/* <ServerSection config={config.server} onChange={handleServerChange} /> */}
-                        <MachbaseSection config={config.machbase} onChange={handleMachbaseChange} />
-                        <ApiKeysSection
-                            claude={config.claude}
-                            chatgpt={config.chatgpt}
-                            gemini={config.gemini}
-                            ollama={config.ollama}
-                            onKeyChange={handleApiKeyChange}
-                            onOllamaUrlChange={handleOllamaUrlChange}
-                            showToast={showToast}
-                        />
-                        <ModelsSection claude={config.claude} chatgpt={config.chatgpt} gemini={config.gemini} ollama={config.ollama} onChange={handleModelsChange} />
-                        <ActionsSection config={config} configName={selectedConfig} showToast={showToast} onSaved={handleSaved} />
+        <>
+            <div className="page bg-surface-alt" style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+                {activeTab === null ? (
+                    <div className="flex-1 flex items-center justify-center">
+                        <span className="spinner" />
                     </div>
-                </section>
-            </main>
-
-            {toasts.length > 0 && (
-                <div className="toast-container" role="status" aria-live="polite">
-                    {toasts.map((t) => (
-                        <div key={t.id} className={`toast toast-${t.type}`}>
-                            <span className="toast-icon">{t.type === "success" ? "✓" : t.type === "error" ? "✕" : "⚠"}</span>
-                            <span>{t.message}</span>
+                ) : activeTab === "settings" ? (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        <div className="page-header">
+                            <div className="page-header-inner">
+                                <div>
+                                    <h1 className="page-title">{selectedConfig === null ? "New Configuration" : `Configuration: ${selectedConfig}`}</h1>
+                                    <p className="page-desc">Manage LLM providers, API keys, models, and connection settings.</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button className="btn btn-content btn-success" onClick={() => setActiveTab("chat")}>
+                                        <Icon name="chat" className="icon-sm" /> Chat
+                                    </button>
+                                    {selectedConfig !== null && (
+                                        <button className="btn btn-content btn-danger" onClick={() => setShowDeleteConfirm(true)}>
+                                            <Icon name="delete" className="icon-sm" /> Delete
+                                        </button>
+                                    )}
+                                    <button className="btn btn-content btn-primary" onClick={handleSave} disabled={saving}>
+                                        {saving ? <span className="spinner" /> : <Icon name="save" className="icon-sm" />}
+                                        {selectedConfig === null ? "Create Config" : "Save Settings"}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                    ))}
-                </div>
+                        <div className="page-body">
+                            <div className="page-body-inner">
+                                <div className="flex flex-col gap-4">
+                                    <MachbaseSection config={config.machbase} onChange={handleMachbaseChange} />
+                                    <ApiKeysSection
+                                        claude={config.claude}
+                                        chatgpt={config.chatgpt}
+                                        gemini={config.gemini}
+                                        ollama={config.ollama}
+                                        onKeyChange={handleApiKeyChange}
+                                        onOllamaUrlChange={handleOllamaUrlChange}
+                                    />
+                                    <ModelsSection claude={config.claude} chatgpt={config.chatgpt} gemini={config.gemini} ollama={config.ollama} onChange={handleModelsChange} />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex-1 overflow-hidden">
+                        <Chat onOpenSettings={() => setActiveTab("settings")} />
+                    </div>
+                )}
+            </div>
+
+            {showDeleteConfirm && selectedConfig && (
+                <ConfirmDialog
+                    title="Delete Configuration"
+                    message={`Are you sure you want to delete "${selectedConfig}"? This action cannot be undone.`}
+                    onConfirm={handleDelete}
+                    onCancel={() => setShowDeleteConfirm(false)}
+                />
             )}
-        </div>
+
+            <Toast />
+        </>
     );
 }
-
-export default App;

@@ -1,23 +1,37 @@
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const entries: Record<string, string> = {
+    index: resolve(__dirname, "index.html"),
+    main: resolve(__dirname, "main.html"),
+};
+
+const entry = process.env.VITE_ENTRY || "index";
+
 export default defineConfig({
-    plugins: [react(), viteSingleFile()],
+    plugins: [react(), tailwindcss(), viteSingleFile()],
     build: {
-        outDir: "dist",
-        cssCodeSplit: false,
-        assetsInlineLimit: 100000000,
         rollupOptions: {
-            input: "index.html",
-            output: {
-                inlineDynamicImports: true,
-            },
+            input: entries[entry],
         },
+        emptyOutDir: entry === "index",
     },
     server: {
+        host: true,
+        port: 7779,
         proxy: {
-            "/api": "http://192.168.0.87:8884",
+            "/sys/ws": {
+                target: `ws://${"192.168.1.76"}:8884`,
+                changeOrigin: true,
+                secure: false,
+                ws: true,
+            },
         },
     },
 });

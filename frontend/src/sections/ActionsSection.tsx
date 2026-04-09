@@ -1,58 +1,56 @@
-import { useState } from "react";
-import type { AppConfig, ToastType } from "../types/settings";
-import { createConfig, updateConfig } from "../services/settingsApi";
+import { useState } from 'react'
+import { useApp } from '../context/AppContext'
+import Icon from '../components/common/Icon'
+import type { AppConfig } from '../types/settings'
+import { createConfig, updateConfig } from '../services/settingsApi'
 
 interface Props {
-    config: AppConfig;
-    configName: string | null;
-    showToast: (message: string, type: ToastType) => void;
-    onSaved: (name: string) => void;
+    config: AppConfig
+    configName: string | null
+    onSaved: (name: string) => void
 }
 
-export function ActionsSection({ config, configName, showToast, onSaved }: Props) {
-    const [saving, setSaving] = useState(false);
-
-    const isNew = configName === null;
+export function ActionsSection({ config, configName, onSaved }: Props) {
+    const { notify } = useApp()
+    const [saving, setSaving] = useState(false)
+    const isNew = configName === null
 
     const handleSave = async () => {
-        setSaving(true);
+        setSaving(true)
         try {
-            let savedName: string;
+            let savedName: string
             if (isNew) {
-                savedName = await createConfig(config);
-                showToast(`Config "${savedName}" created.`, "success");
+                savedName = await createConfig(config)
+                notify(`Config "${savedName}" created.`, 'success')
             } else {
-                savedName = await updateConfig(configName, config);
-                showToast(`Config "${savedName}" saved.`, "success");
+                savedName = await updateConfig(configName, config)
+                notify(`Config "${savedName}" saved.`, 'success')
             }
-            onSaved(savedName);
+            onSaved(savedName)
         } catch (e) {
-            showToast(`Save failed: ${e instanceof Error ? e.message : "unknown error"}`, "error");
+            notify(`Save failed: ${e instanceof Error ? e.message : 'unknown error'}`, 'error')
         }
-        setSaving(false);
-    };
+        setSaving(false)
+    }
 
     return (
-        <div className="panel-card">
-            <div className="panel-card-head">
+        <div className="card">
+            <div className="card-title">
                 <div>
-                    <h3>Save &amp; Apply</h3>
-                    <p>{isNew ? "Create a new configuration" : `Editing: ${configName}`}</p>
+                    <h3>Save & Apply</h3>
+                    <p className="text-sm text-on-surface-secondary mt-1">{isNew ? 'Create a new configuration' : `Editing: ${configName}`}</p>
                 </div>
             </div>
 
-            <div className="action-bar">
-                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                    {saving ? (
-                        <span className="spinner" />
-                    ) : (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-                            <path d="M13.5 11.5v1a1 1 0 01-1 1h-9a1 1 0 01-1-1v-1M8 2v8M5 7l3 3 3-3" />
-                        </svg>
-                    )}
-                    {isNew ? "Create Config" : "Save Settings"}
+            <div className="flex items-center gap-3">
+                <button className="btn btn-content btn-primary" onClick={handleSave} disabled={saving}>
+                    {saving
+                        ? <span className="spinner" />
+                        : <Icon name="save" className="icon-sm" />
+                    }
+                    {isNew ? 'Create Config' : 'Save Settings'}
                 </button>
             </div>
         </div>
-    );
+    )
 }
