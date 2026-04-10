@@ -4,7 +4,10 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/cmplx"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -61,13 +64,16 @@ func (r *Registry) registerReportTools() {
 - table: 테이블명 (필수!)
 - analysis: 3번 SQL 통계를 해석한 심층 분석 (한국어, **소제목** 포함 5~7문단)
 - recommendations: 종합 소견 및 권고 (한국어, 5개 이상 번호 항목)
-금융: template_id="R-1"`,
+template_id 선택 기준 (데이터 성격에 맞게):
+- 'R-2': 진동 분석 (가속도, 속도, 변위 — 센서 진동 데이터)
+- 'R-1': 금융 (OHLC, 환율, 원자재 — close/open/high/low/volume 등)
+- 'R-0': 범용 (위에 해당하지 않는 모든 데이터)`,
 		Parameters: ToolParameters{
 			Type: "object",
 			Properties: map[string]ToolProperty{
 				"template_id": {
 					Type:        "string",
-					Description: "템플릿 ID. 금융: 'R-1'",
+					Description: "템플릿 ID. 진동: 'R-2', 금융: 'R-1', 범용: 'R-0' (기본값)",
 				},
 				"table": {
 					Type:        "string",
@@ -92,6 +98,11 @@ func (r *Registry) registerReportTools() {
 				"recommendations": {
 					Type:        "string",
 					Description: "종합 소견 및 권고 (한국어). 5개 이상 번호 항목!",
+				},
+				"rollup_unit": {
+					Type:        "string",
+					Description: "ROLLUP 시간 단위. 기본값: 자동(시간 범위 기반). 사용자가 단위를 지정하면 그 값 사용. sec/min/hour/day/week/month",
+					Enum:        []string{"sec", "min", "hour", "day", "week", "month"},
 				},
 			},
 			Required: []string{"table", "analysis", "recommendations"},
@@ -142,7 +153,7 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 		templateID = argAnyStr(normalizedArgs, "templateid")
 	}
 	if templateID == "" {
-		templateID = "R-1"
+		templateID = "R-0"
 	}
 
 	filename := argAnyStr(normalizedArgs, "filename")
@@ -212,47 +223,116 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 		}
 	}
 
-	// 3. Get tag list → pick primary tag and volume tag
+	// 3. Get tag list
 	tagListSQL := fmt.Sprintf("SELECT NAME FROM %s%s GROUP BY NAME", tableName, timeWhereBase)
 	tagCSV, _ := r.client.QuerySQL(tagListSQL, "", "", "csv")
 	tags := parseTagList(tagCSV)
-	primaryTag, volumeTag := pickTrendTags(tags)
-	fmt.Printf("[Report] Tags: %v → primary=%q, volume=%q\n", tags, primaryTag, volumeTag)
 
-	// 4. Pick ROLLUP unit based on time range size
-	rollupUnit := pickRollupUnit(timeStart, timeEnd)
+	// 4. Pick ROLLUP unit (user-specified or auto)
+	rollupUnit := argAnyStr(normalizedArgs, "rollup_unit")
+	if rollupUnit == "" {
+		rollupUnit = pickRollupUnit(timeStart, timeEnd)
+	}
 	fmt.Printf("[Report] ROLLUP unit: %s\n", rollupUnit)
 	rollupLabels := map[string]string{"sec": "초별", "min": "분별", "hour": "시간별", "day": "일별", "week": "주별", "month": "월별"}
 	params["ROLLUP_LABEL"] = rollupLabels[rollupUnit]
 
-	// 5. Primary tag trend
-	closeTrend := []map[string]interface{}{}
-	if primaryTag != "" {
-		trendSQL := fmt.Sprintf("SELECT ROLLUP('%s',1,TIME) as t, ROUND(AVG(VALUE),2) as v FROM %s WHERE NAME='%s'%s GROUP BY ROLLUP('%s',1,TIME) ORDER BY t",
-			rollupUnit, tableName, primaryTag, timeWhere, rollupUnit)
-		trendCSV, err := r.client.QuerySQL(trendSQL, "Default", "", "csv")
-		if err == nil {
-			closeTrend = parseTrendCSV(trendCSV, "close", rollupUnit)
-		}
-	}
+	if templateID == "R-2" {
+		// --- R-2: Vibration-specific per-tag data ---
+		tagListJSON, _ := json.Marshal(tags)
+		params["TAG_LIST_JSON"] = string(tagListJSON)
 
-	// 6. Volume tag trend — only if exists
-	volTrend := []map[string]interface{}{}
-	if volumeTag != "" {
-		volSQL := fmt.Sprintf("SELECT ROLLUP('%s',1,TIME) as t, ROUND(AVG(VALUE),0) as v FROM %s WHERE NAME='%s'%s GROUP BY ROLLUP('%s',1,TIME) ORDER BY t",
-			rollupUnit, tableName, volumeTag, timeWhere, rollupUnit)
-		volCSV, err := r.client.QuerySQL(volSQL, "Default", "", "csv")
-		if err == nil {
-			volTrend = parseTrendCSV(volCSV, "volume", rollupUnit)
+		maxVibTags := 10
+		vibTags := tags
+		if len(vibTags) > maxVibTags {
+			vibTags = vibTags[:maxVibTags]
 		}
-	}
 
-	// Merge into trend_data_json
-	trendData := mergeTrend(closeTrend, volTrend)
-	if len(trendData) > 0 {
-		trendJSON, _ := json.Marshal(trendData)
-		params["TREND_DATA_JSON"] = string(trendJSON)
-		fmt.Printf("[Report] Fetched %d months of trend data\n", len(trendData))
+		perTagData := map[string]interface{}{}
+		for _, tag := range vibTags {
+			tagData := map[string]interface{}{}
+
+			// ROLLUP trend with SUMSQ for RMS/P2P/Crest
+			rollupSQL := fmt.Sprintf(
+				"SELECT ROLLUP('%s',1,TIME) as t, ROUND(AVG(VALUE),6) as avg_val, "+
+					"ROUND(MIN(VALUE),6) as min_val, ROUND(MAX(VALUE),6) as max_val, "+
+					"SUMSQ(VALUE) as sumsq, COUNT(VALUE) as cnt "+
+					"FROM %s WHERE NAME='%s'%s "+
+					"GROUP BY ROLLUP('%s',1,TIME) ORDER BY t",
+				rollupUnit, tableName, tag, timeWhere, rollupUnit)
+			rollupCSV, err := r.client.QuerySQL(rollupSQL, "Default", "", "csv")
+			if err == nil {
+				tagData["rollup"] = parseVibRollupCSV(rollupCSV, rollupUnit)
+			} else {
+				fmt.Printf("[Report] Vibration rollup query failed for tag %s: %v\n", tag, err)
+			}
+
+			// Raw waveform (4096 points for chart display)
+			rawSQL := fmt.Sprintf(
+				"SELECT TIME, VALUE FROM %s WHERE NAME='%s'%s ORDER BY TIME LIMIT 4096",
+				tableName, tag, timeWhere)
+			rawCSV, err := r.client.QuerySQL(rawSQL, "", "", "csv")
+			if err == nil {
+				tagData["raw"] = parseVibRawCSV(rawCSV)
+			} else {
+				fmt.Printf("[Report] Vibration raw query failed for tag %s: %v\n", tag, err)
+			}
+
+			// FFT: fetch ALL raw data in range, compute server-side, send spectrum only
+			fftSQL := fmt.Sprintf(
+				"SELECT TIME, VALUE FROM %s WHERE NAME='%s'%s ORDER BY TIME",
+				tableName, tag, timeWhere)
+			fftCSV, err := r.client.QuerySQL(fftSQL, "", "", "csv")
+			if err == nil {
+				if spectrum := computeFFTSpectrum(fftCSV, 4096); spectrum != nil {
+					tagData["fft"] = spectrum
+					fmt.Printf("[Report] FFT computed for tag %s: %d points → %d bins\n",
+						tag, spectrum["total_points"], len(spectrum["mags"].([]float64)))
+				}
+			} else {
+				fmt.Printf("[Report] FFT raw query failed for tag %s: %v\n", tag, err)
+			}
+
+			// Per-tag summary stats
+			tagData["stats"] = computeVibStats(tagData)
+
+			perTagData[tag] = tagData
+		}
+
+		perTagJSON, _ := json.Marshal(perTagData)
+		params["PER_TAG_DATA_JSON"] = string(perTagJSON)
+		fmt.Printf("[Report] Fetched vibration data for %d tags\n", len(vibTags))
+	} else {
+		// --- R-0/R-1: primary + volume trend ---
+		primaryTag, volumeTag := pickTrendTags(tags)
+		fmt.Printf("[Report] Tags: %v → primary=%q, volume=%q\n", tags, primaryTag, volumeTag)
+
+		closeTrend := []map[string]interface{}{}
+		if primaryTag != "" {
+			trendSQL := fmt.Sprintf("SELECT ROLLUP('%s',1,TIME) as t, ROUND(AVG(VALUE),2) as v FROM %s WHERE NAME='%s'%s GROUP BY ROLLUP('%s',1,TIME) ORDER BY t",
+				rollupUnit, tableName, primaryTag, timeWhere, rollupUnit)
+			trendCSV, err := r.client.QuerySQL(trendSQL, "Default", "", "csv")
+			if err == nil {
+				closeTrend = parseTrendCSV(trendCSV, "close", rollupUnit)
+			}
+		}
+
+		volTrend := []map[string]interface{}{}
+		if volumeTag != "" {
+			volSQL := fmt.Sprintf("SELECT ROLLUP('%s',1,TIME) as t, ROUND(AVG(VALUE),0) as v FROM %s WHERE NAME='%s'%s GROUP BY ROLLUP('%s',1,TIME) ORDER BY t",
+				rollupUnit, tableName, volumeTag, timeWhere, rollupUnit)
+			volCSV, err := r.client.QuerySQL(volSQL, "Default", "", "csv")
+			if err == nil {
+				volTrend = parseTrendCSV(volCSV, "volume", rollupUnit)
+			}
+		}
+
+		trendData := mergeTrend(closeTrend, volTrend)
+		if len(trendData) > 0 {
+			trendJSON, _ := json.Marshal(trendData)
+			params["TREND_DATA_JSON"] = string(trendJSON)
+			fmt.Printf("[Report] Fetched %d trend data points\n", len(trendData))
+		}
 	}
 
 	// --- LLM-provided params ---
@@ -363,12 +443,26 @@ func parseTimeRangeCSV(csvData string) string {
 	}
 	minT := strings.TrimSpace(records[1][0])
 	maxT := strings.TrimSpace(records[1][1])
-	// Truncate to date only if datetime
-	if len(minT) > 10 {
-		minT = minT[:10]
+	// If same date, keep time portion (HH:MM:SS); otherwise truncate to date
+	minDate := minT
+	maxDate := maxT
+	if len(minDate) > 10 {
+		minDate = minDate[:10]
 	}
-	if len(maxT) > 10 {
-		maxT = maxT[:10]
+	if len(maxDate) > 10 {
+		maxDate = maxDate[:10]
+	}
+	if minDate == maxDate {
+		// Same day — show with time
+		if len(minT) > 19 {
+			minT = minT[:19]
+		}
+		if len(maxT) > 19 {
+			maxT = maxT[:19]
+		}
+	} else {
+		minT = minDate
+		maxT = maxDate
 	}
 	return minT + " ~ " + maxT
 }
@@ -382,7 +476,9 @@ func parseTrendCSV(csvData string, valueKey string, rollupUnit string) []map[str
 	// Determine time label length based on rollup unit
 	trimLen := 7 // "YYYY-MM" for month
 	switch rollupUnit {
-	case "sec", "min":
+	case "sec":
+		trimLen = 19 // "YYYY-MM-DD HH:MM:SS"
+	case "min":
 		trimLen = 16 // "YYYY-MM-DD HH:MM"
 	case "hour":
 		trimLen = 13 // "YYYY-MM-DD HH"
@@ -565,19 +661,36 @@ func convertTimeRangeToLocal(s string, loc *time.Location) string {
 		"2006-01-02T15:04:05",
 		"2006-01-02",
 	}
+	var parsed []time.Time
 	var result []string
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		converted := false
 		for _, fmt := range formats {
 			if t, err := time.Parse(fmt, part); err == nil {
-				result = append(result, t.In(loc).Format("2006-01-02"))
+				parsed = append(parsed, t.In(loc))
 				converted = true
 				break
 			}
 		}
 		if !converted {
 			result = append(result, part)
+			parsed = append(parsed, time.Time{})
+		}
+	}
+	// If same date, show with time; otherwise date only
+	outFmt := "2006-01-02"
+	if len(parsed) == 2 && !parsed[0].IsZero() && !parsed[1].IsZero() {
+		if parsed[0].Format("2006-01-02") == parsed[1].Format("2006-01-02") {
+			outFmt = "2006-01-02 15:04:05"
+		}
+	}
+	result = nil
+	for _, t := range parsed {
+		if t.IsZero() {
+			result = append(result, "?")
+		} else {
+			result = append(result, t.Format(outFmt))
 		}
 	}
 	return strings.Join(result, " ~ ")
@@ -590,7 +703,291 @@ var (
 	boldHeadingRE  = regexp.MustCompile(`(?m)^\*\*(.+?)\*\*\s+(.+)$`)
 )
 
+// --- Vibration CSV parsing helpers ---
+
+func parseVibRollupCSV(csvData string, rollupUnit string) []map[string]interface{} {
+	reader := csv.NewReader(strings.NewReader(csvData))
+	records, _ := reader.ReadAll()
+	if len(records) < 2 {
+		return nil
+	}
+	trimLen := 7
+	switch rollupUnit {
+	case "sec":
+		trimLen = 19 // "YYYY-MM-DD HH:MM:SS"
+	case "min":
+		trimLen = 16 // "YYYY-MM-DD HH:MM"
+	case "hour":
+		trimLen = 13
+	case "day", "week":
+		trimLen = 10
+	}
+	var items []map[string]interface{}
+	for _, rec := range records[1:] {
+		if len(rec) < 6 {
+			continue
+		}
+		t := strings.TrimSpace(rec[0])
+		if len(t) > trimLen {
+			t = t[:trimLen]
+		}
+		var avg, minV, maxV, sumsq float64
+		var cnt float64
+		fmt.Sscanf(strings.TrimSpace(rec[1]), "%f", &avg)
+		fmt.Sscanf(strings.TrimSpace(rec[2]), "%f", &minV)
+		fmt.Sscanf(strings.TrimSpace(rec[3]), "%f", &maxV)
+		fmt.Sscanf(strings.TrimSpace(rec[4]), "%f", &sumsq)
+		fmt.Sscanf(strings.TrimSpace(rec[5]), "%f", &cnt)
+
+		rms := 0.0
+		if cnt > 0 {
+			rms = math.Sqrt(sumsq / cnt)
+		}
+		p2p := maxV - minV
+		peak := math.Max(math.Abs(minV), math.Abs(maxV))
+		crest := 0.0
+		if rms > 0 {
+			crest = peak / rms
+		}
+
+		items = append(items, map[string]interface{}{
+			"t":     t,
+			"rms":   math.Round(rms*1e6) / 1e6,
+			"p2p":   math.Round(p2p*1e6) / 1e6,
+			"crest": math.Round(crest*1e4) / 1e4,
+			"avg":   avg,
+			"min":   minV,
+			"max":   maxV,
+		})
+	}
+	return items
+}
+
+func parseVibRawCSV(csvData string) map[string]interface{} {
+	reader := csv.NewReader(strings.NewReader(csvData))
+	records, _ := reader.ReadAll()
+	if len(records) < 2 {
+		return map[string]interface{}{"times_ms": []float64{}, "values": []float64{}}
+	}
+	dataRows := records[1:]
+	timesMs := make([]float64, 0, len(dataRows))
+	values := make([]float64, 0, len(dataRows))
+	for _, rec := range dataRows {
+		if len(rec) < 2 {
+			continue
+		}
+		var ns float64
+		fmt.Sscanf(strings.TrimSpace(rec[0]), "%f", &ns)
+		ms := ns / 1e6 // nanoseconds → milliseconds
+		var val float64
+		fmt.Sscanf(strings.TrimSpace(rec[1]), "%f", &val)
+		timesMs = append(timesMs, ms)
+		values = append(values, val)
+	}
+	return map[string]interface{}{
+		"times_ms": timesMs,
+		"values":   values,
+	}
+}
+
+func computeVibStats(tagData map[string]interface{}) map[string]interface{} {
+	stats := map[string]interface{}{
+		"count": 0, "avg": 0.0, "min": 0.0, "max": 0.0,
+		"rms": 0.0, "p2p": 0.0, "crest": 0.0,
+	}
+	rollupRaw, ok := tagData["rollup"]
+	if !ok {
+		return stats
+	}
+	rollup, ok := rollupRaw.([]map[string]interface{})
+	if !ok || len(rollup) == 0 {
+		return stats
+	}
+
+	// Aggregate across all rollup buckets
+	var totalSumSq, totalCount float64
+	globalMin := math.MaxFloat64
+	globalMax := -math.MaxFloat64
+	var sumAvg float64
+	for _, r := range rollup {
+		rms, _ := r["rms"].(float64)
+		avg, _ := r["avg"].(float64)
+		minV, _ := r["min"].(float64)
+		maxV, _ := r["max"].(float64)
+		// Approximate: reconstruct sumsq from rms^2 * estimated count per bucket
+		// Instead, use per-bucket min/max/avg for global stats
+		sumAvg += avg
+		if minV < globalMin {
+			globalMin = minV
+		}
+		if maxV > globalMax {
+			globalMax = maxV
+		}
+		totalSumSq += rms * rms
+		totalCount++
+	}
+
+	overallRMS := 0.0
+	if totalCount > 0 {
+		overallRMS = math.Sqrt(totalSumSq / totalCount)
+	}
+	overallP2P := globalMax - globalMin
+	peak := math.Max(math.Abs(globalMin), math.Abs(globalMax))
+	overallCrest := 0.0
+	if overallRMS > 0 {
+		overallCrest = peak / overallRMS
+	}
+
+	return map[string]interface{}{
+		"count": int(totalCount),
+		"avg":   math.Round(sumAvg/totalCount*1e4) / 1e4,
+		"min":   globalMin,
+		"max":   globalMax,
+		"rms":   math.Round(overallRMS*1e6) / 1e6,
+		"p2p":   math.Round(overallP2P*1e6) / 1e6,
+		"crest": math.Round(overallCrest*1e4) / 1e4,
+	}
+}
+
+// --- Server-side FFT ---
+
+func nextPow2(n int) int {
+	p := 1
+	for p < n {
+		p *= 2
+	}
+	return p
+}
+
+// fftRadix2 performs in-place Cooley-Tukey FFT. len(data) must be power of 2.
+func fftRadix2(data []complex128) {
+	n := len(data)
+	// Bit-reversal permutation
+	for i, j := 1, 0; i < n; i++ {
+		bit := n >> 1
+		for j&bit != 0 {
+			j ^= bit
+			bit >>= 1
+		}
+		j ^= bit
+		if i < j {
+			data[i], data[j] = data[j], data[i]
+		}
+	}
+	// Butterfly
+	for l := 2; l <= n; l *= 2 {
+		ang := -2.0 * math.Pi / float64(l)
+		wn := cmplx.Rect(1, ang)
+		for i := 0; i < n; i += l {
+			w := complex(1, 0)
+			for j := 0; j < l/2; j++ {
+				u := data[i+j]
+				v := data[i+j+l/2] * w
+				data[i+j] = u + v
+				data[i+j+l/2] = u - v
+				w *= wn
+			}
+		}
+	}
+}
+
+// computeFFTSpectrum computes FFT on all values, then bins the magnitude spectrum down to maxBins points.
+// Returns {freqs: [...], mags: [...], sample_rate: float64}
+func computeFFTSpectrum(rawCSV string, maxBins int) map[string]interface{} {
+	reader := csv.NewReader(strings.NewReader(rawCSV))
+	records, _ := reader.ReadAll()
+	if len(records) < 9 { // header + at least 8 data rows
+		return nil
+	}
+	dataRows := records[1:]
+	N := len(dataRows)
+
+	// Parse values + compute sample rate from first and last timestamp
+	values := make([]float64, N)
+	var firstNs, lastNs float64
+	for i, rec := range dataRows {
+		if len(rec) < 2 {
+			continue
+		}
+		if i == 0 {
+			fmt.Sscanf(strings.TrimSpace(rec[0]), "%f", &firstNs)
+		}
+		if i == N-1 {
+			fmt.Sscanf(strings.TrimSpace(rec[0]), "%f", &lastNs)
+		}
+		fmt.Sscanf(strings.TrimSpace(rec[1]), "%f", &values[i])
+	}
+	dtSec := (lastNs - firstNs) / 1e9 / float64(N-1)
+	if dtSec <= 0 {
+		return nil
+	}
+	sampleRate := 1.0 / dtSec
+
+	// Zero-pad to next power of 2
+	n2 := nextPow2(N)
+	data := make([]complex128, n2)
+	// Apply Hanning window
+	for i := 0; i < N; i++ {
+		w := 0.5 * (1.0 - math.Cos(2.0*math.Pi*float64(i)/float64(N-1)))
+		data[i] = complex(values[i]*w, 0)
+	}
+
+	fftRadix2(data)
+
+	// Magnitude spectrum (first half)
+	half := n2 / 2
+	rawMags := make([]float64, half-1)
+	for k := 1; k < half; k++ {
+		rawMags[k-1] = cmplx.Abs(data[k]) / float64(N) * 2
+	}
+
+	// Bin down to maxBins
+	freqs := make([]float64, 0, maxBins)
+	mags := make([]float64, 0, maxBins)
+	if len(rawMags) <= maxBins {
+		// No binning needed
+		for k := 0; k < len(rawMags); k++ {
+			freqs = append(freqs, float64(k+1)*sampleRate/float64(n2))
+			mags = append(mags, rawMags[k])
+		}
+	} else {
+		binSize := float64(len(rawMags)) / float64(maxBins)
+		for b := 0; b < maxBins; b++ {
+			start := int(float64(b) * binSize)
+			end := int(float64(b+1) * binSize)
+			if end > len(rawMags) {
+				end = len(rawMags)
+			}
+			sum := 0.0
+			for i := start; i < end; i++ {
+				sum += rawMags[i]
+			}
+			avg := sum / float64(end-start)
+			midK := (start + end) / 2
+			freqs = append(freqs, float64(midK+1)*sampleRate/float64(n2))
+			mags = append(mags, math.Round(avg*1e6)/1e6)
+		}
+	}
+
+	return map[string]interface{}{
+		"freqs":       freqs,
+		"mags":        mags,
+		"sample_rate": math.Round(sampleRate*100) / 100,
+		"total_points": N,
+	}
+}
+
+// formatFreqLabel formats frequency value for display
+func formatFreqLabel(f float64) string {
+	if f >= 1000 {
+		return strconv.FormatFloat(f/1000, 'f', 1, 64) + "KHz"
+	}
+	return strconv.FormatFloat(f, 'f', 1, 64) + "Hz"
+}
+
 func mdToHTML(text string) string {
+	// Split inline numbered lists: "1. xxx 2. xxx" → separate lines
+	text = regexp.MustCompile(`\.\s+(\d+)\.\s+`).ReplaceAllString(text, ".\n$1. ")
 	// ## headings
 	text = regexp.MustCompile(`(?m)^##\s+(.+)$`).ReplaceAllString(text, `<h4 style="color:#1a365d;margin:20px 0 8px;font-size:15px;">$1</h4>`)
 	// **Title** content → split

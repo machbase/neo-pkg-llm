@@ -57,7 +57,7 @@
   .kpi-card .kpi-value { font-size: 24px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; border-radius: 8px; overflow: hidden; }
-  thead th { background: #2d3748; color: #fff; font-weight: 600; padding: 14px 16px; text-align: left; }
+  thead th { background: #2d3748; color: #fff; font-weight: 600; padding: 14px 16px; text-align: left; position: sticky; top: 0; z-index: 1; }
   tbody td { padding: 12px 16px; border-bottom: 1px solid #edf2f7; }
   tbody tr:hover { background: #f7fafc; }
   tbody tr:last-child td { border-bottom: none; }
@@ -124,12 +124,14 @@
   <!-- Tag Stats -->
   <div class="section">
     <div class="section-title"><div class="icon icon-blue">&#128200;</div> 태그별 통계 요약</div>
+    <div style="max-height:400px;overflow-y:auto;border-radius:8px;">
     <table>
       <thead><tr>
         <th>태그(NAME)</th><th class="num">건수(COUNT)</th><th class="num">평균(AVG)</th><th class="num">최솟값(MIN)</th><th class="num">최댓값(MAX)</th>
       </tr></thead>
       <tbody>{TAG_STATS_ROWS}</tbody>
     </table>
+    </div>
   </div>
 
   <!-- Comparison Charts -->
@@ -337,10 +339,6 @@
       rPts.push({x:cx,y:yAv,label:'<strong>'+d.name+'</strong><br>MIN: '+fmt(d.min)+'<br>AVG: '+fmt(d.avg)+'<br>MAX: '+fmt(d.max)});
     });
     // Legend
-    ctx.font='11px Segoe UI';ctx.fillStyle='#8e99a4';var lx=pad.l+10;
-    ctx.strokeStyle='#667eea';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(lx,H-8);ctx.lineTo(lx+16,H-8);ctx.stroke();ctx.fillText('MIN~MAX',lx+20,H-4);
-    ctx.fillStyle='#667eea';ctx.beginPath();ctx.moveTo(lx+100,H-12);ctx.lineTo(lx+104,H-8);ctx.lineTo(lx+100,H-4);ctx.lineTo(lx+96,H-8);ctx.closePath();ctx.fill();
-    ctx.fillStyle='#8e99a4';ctx.fillText('AVG',lx+108,H-4);
     ctx.strokeStyle='#cbd5e0';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(pad.l,pad.t+ch);ctx.lineTo(W-pad.r,pad.t+ch);ctx.stroke();
     addTip('rangeChart','rangeTip',rPts);
   })();

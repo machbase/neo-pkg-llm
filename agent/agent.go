@@ -175,10 +175,10 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 					endDt = a.dataMaxDt
 				}
 				if startDt != "" && endDt != "" {
-					if startTime, err := time.Parse(dtFormat, startDt); err == nil {
+					if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
 						tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
 					}
-					if endTime, err := time.Parse(dtFormat, endDt); err == nil {
+					if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
 						tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
 					}
 					fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
@@ -354,10 +354,10 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 						endDt = a.dataMaxDt
 					}
 					if startDt != "" && endDt != "" {
-						if startTime, err := time.Parse(dtFormat, startDt); err == nil {
+						if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
 							tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
 						}
-						if endTime, err := time.Parse(dtFormat, endDt); err == nil {
+						if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
 							tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
 						}
 						fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)

@@ -76,6 +76,13 @@ func ExpandReportTemplate(templateID string, params map[string]string) (string, 
 	tmpl := LoadReportTemplates()
 	code, ok := tmpl[templateID]
 	if !ok {
+		// Fallback to R-0 (범용)
+		code, ok = tmpl["R-0"]
+		if ok {
+			fmt.Printf("[ReportTemplates] Template '%s' not found, falling back to R-0\n", templateID)
+		}
+	}
+	if !ok {
 		ids := make([]string, 0, len(tmpl))
 		for id := range tmpl {
 			ids = append(ids, id)
@@ -87,7 +94,7 @@ func ExpandReportTemplate(templateID string, params map[string]string) (string, 
 		code = strings.ReplaceAll(code, "{"+key+"}", val)
 	}
 
-	unmatched := regexp.MustCompile(`\{(TABLE|GENERATED_DATE|TAG_COUNT|DATA_COUNT|TIME_RANGE|TAG_STATS_ROWS|CHART_DATA_JSON|TREND_DATA_JSON|ANALYSIS|RECOMMENDATIONS)\}`).FindAllString(code, -1)
+	unmatched := regexp.MustCompile(`\{(TABLE|GENERATED_DATE|TAG_COUNT|DATA_COUNT|TIME_RANGE|TAG_STATS_ROWS|CHART_DATA_JSON|TREND_DATA_JSON|TAG_LIST_JSON|PER_TAG_DATA_JSON|ROLLUP_LABEL|ANALYSIS|RECOMMENDATIONS)\}`).FindAllString(code, -1)
 	if len(unmatched) > 0 {
 		fmt.Printf("[ReportTemplates] WARNING: unsubstituted placeholders: %v\n", unmatched)
 	}
