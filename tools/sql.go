@@ -46,7 +46,7 @@ func (r *Registry) registerSQLTools() {
 			if strings.ContainsAny(table, " \t\n\r") {
 				return "", fmt.Errorf("invalid table name")
 			}
-			sql := fmt.Sprintf("SELECT * FROM _%s_meta", strings.ToLower(table))
+			sql := fmt.Sprintf("SELECT NAME FROM _%s_meta", strings.ToLower(table))
 			result, err := r.client.QuerySQL(sql, "", "", "csv")
 			if err != nil {
 				return "", fmt.Errorf("list_table_tags failed: %w", err)

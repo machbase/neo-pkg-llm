@@ -50,24 +50,7 @@ func (r *Registry) registerReportTools() {
 
 	r.register(&Tool{
 		Name: "save_html_report",
-		Description: `HTML 분석 리포트를 생성하여 저장합니다.
-
-** 통계/차트 데이터는 도구가 자동 SQL 조회합니다! LLM이 직접 조회할 필요 없음! **
-
-** 이 도구 호출 전에 실행할 것 **
-1. list_tables → 테이블 확인
-2. list_table_tags → 태그 확인
-3. execute_sql_query: SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM 테이블 GROUP BY NAME
-   ※ 시간 제한 필요시 WHERE 추가하지 마세요! 도구가 time_start/time_end로 자동 필터링합니다.
-
-** LLM이 전달할 파라미터 **
-- table: 테이블명 (필수!)
-- analysis: 3번 SQL 통계를 해석한 심층 분석 (한국어, **소제목** 포함 5~7문단)
-- recommendations: 종합 소견 및 권고 (한국어, 5개 이상 번호 항목)
-template_id 선택 기준 (데이터 성격에 맞게):
-- 'R-2': 진동 분석 (가속도, 속도, 변위 — 센서 진동 데이터)
-- 'R-1': 금융 (OHLC, 환율, 원자재 — close/open/high/low/volume 등)
-- 'R-0': 범용 (위에 해당하지 않는 모든 데이터)`,
+		Description: `데이터를 분석하여 HTML 리포트를 생성합니다. 차트와 심층 분석이 포함된 보고서를 자동으로 만들어줍니다. 통계/태그/시간범위 조회를 직접 하지 마세요. 이 도구가 내부에서 모두 처리합니다. table만 지정하여 바로 호출하세요.`,
 		Parameters: ToolParameters{
 			Type: "object",
 			Properties: map[string]ToolProperty{
@@ -93,19 +76,23 @@ template_id 선택 기준 (데이터 성격에 맞게):
 				},
 				"analysis": {
 					Type:        "string",
-					Description: "심층 분석 (한국어). **소제목** 또는 ## 소제목 포함, 5~7문단",
+					Description: "심층 분석 (한국어). ★1차 호출 시 이 파라미터를 비워두세요! 도구가 차트 분석 요약을 반환합니다. 2차 호출 시 그 요약을 기반으로 작성하세요.★ 5~7문단. 데이터 구조/품질 설명 금지! 차트 인사이트와 실질적 해석만 작성.",
 				},
 				"recommendations": {
 					Type:        "string",
-					Description: "종합 소견 및 권고 (한국어). 5개 이상 번호 항목!",
+					Description: "종합 소견 및 권고 (한국어). ★1차 호출 시 비워두세요!★ 5개 이상 번호 항목. 금융: 투자 관점 행동 지침. 진동: 설비 관리 조치 사항.",
 				},
 				"rollup_unit": {
 					Type:        "string",
 					Description: "ROLLUP 시간 단위. 기본값: 자동(시간 범위 기반). 사용자가 단위를 지정하면 그 값 사용. sec/min/hour/day/week/month",
 					Enum:        []string{"sec", "min", "hour", "day", "week", "month"},
 				},
+				"stock": {
+					Type:        "string",
+					Description: "Finance multi-stock table: stock code to analyze (e.g. AAPL). Used when tags follow AAPL_close pattern.",
+				},
 			},
-			Required: []string{"table", "analysis", "recommendations"},
+			Required: []string{"table"},
 		},
 		Fn: r.saveHtmlReport,
 	})
@@ -198,8 +185,73 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 	// --- Server-side SQL queries ---
 	fmt.Printf("[Report] Fetching data for table: %s\n", tableName)
 
-	// 1. Tag stats
-	statsSQL := fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s%s GROUP BY NAME", tableName, timeWhereBase)
+	// 1. Get tag list first (needed for multi-stock detection before stats query)
+	tagListSQL := fmt.Sprintf("SELECT NAME FROM V$%s_STAT LIMIT 2600", tableName)
+	tagCSV, _ := r.client.QuerySQL(tagListSQL, "", "", "csv")
+	tags := parseTagList(tagCSV)
+	if len(tags) == 0 {
+		// Fallback: GROUP BY (slower but works for all tables)
+		tagListSQL = fmt.Sprintf("SELECT NAME FROM %s%s GROUP BY NAME", tableName, timeWhereBase)
+		tagCSV, _ = r.client.QuerySQL(tagListSQL, "", "", "csv")
+		tags = parseTagList(tagCSV)
+	}
+	if len(tags) == 0 {
+		return "", fmt.Errorf("failed to retrieve tags from table %s (query may have timed out due to large data volume)", tableName)
+	}
+
+	// 2. Multi-stock detection (before stats query to filter)
+	stock := argAnyStr(normalizedArgs, "stock")
+	autoSelectedStock := ""
+	if detectMultiStock(tags) && stock == "" {
+		stocks := extractStockNames(tags)
+		if len(stocks) > 0 {
+			stock = stocks[0]
+			autoSelectedStock = stock
+			if templateID == "R-0" {
+				templateID = "R-1"
+			}
+			fmt.Printf("[Report] Multi-stock detected, auto-selected first stock: %s (template: %s)\n", stock, templateID)
+		}
+	}
+
+	// Filter tags by stock prefix if applicable
+	stockWhere := ""
+	if stock != "" {
+		prefix := strings.ToUpper(stock) + "_"
+		filtered := make([]string, 0)
+		for _, t := range tags {
+			if strings.HasPrefix(strings.ToUpper(t), prefix) {
+				filtered = append(filtered, t)
+			}
+		}
+		if len(filtered) > 0 {
+			tags = filtered
+			// Build IN clause for stats query
+			quoted := make([]string, len(filtered))
+			for i, t := range filtered {
+				quoted[i] = fmt.Sprintf("'%s'", t)
+			}
+			stockWhere = fmt.Sprintf(" AND NAME IN (%s)", strings.Join(quoted, ","))
+			fmt.Printf("[Report] Filtered to stock '%s': %d tags\n", stock, len(filtered))
+		}
+	}
+
+	// Auto-detect template: if OHLCV tags found, use R-1
+	if templateID == "R-0" {
+		ohlcvCheck := findOHLCVTags(tags, stock)
+		if ohlcvCheck["close"] != "" && ohlcvCheck["open"] != "" {
+			templateID = "R-1"
+			fmt.Printf("[Report] Auto-detected OHLCV tags, switching to R-1\n")
+		}
+	}
+
+	// 3. Tag stats (filtered by stock if multi-stock)
+	statsSQL := fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s%s%s GROUP BY NAME", tableName, timeWhereBase, stockWhere)
+	if stockWhere == "" && timeWhereBase == "" {
+		statsSQL = fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s GROUP BY NAME", tableName)
+	} else if stockWhere != "" && timeWhereBase == "" {
+		statsSQL = fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s WHERE%s GROUP BY NAME", tableName, stockWhere[4:])
+	}
 	statsCSV, err := r.client.QuerySQL(statsSQL, "", "", "csv")
 	if err == nil {
 		rows, chartItems := parseStatsCSV(statsCSV)
@@ -214,7 +266,7 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 		fmt.Printf("[Report] Stats query failed: %v\n", err)
 	}
 
-	// 2. Time range
+	// 4. Time range
 	timeSQL := fmt.Sprintf("SELECT MIN(TIME), MAX(TIME) FROM %s%s", tableName, timeWhereBase)
 	timeCSV, err := r.client.QuerySQL(timeSQL, "Default", "", "csv")
 	if err == nil {
@@ -222,11 +274,6 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 			params["TIME_RANGE"] = convertTimeRangeToLocal(tr, loc)
 		}
 	}
-
-	// 3. Get tag list
-	tagListSQL := fmt.Sprintf("SELECT NAME FROM %s%s GROUP BY NAME", tableName, timeWhereBase)
-	tagCSV, _ := r.client.QuerySQL(tagListSQL, "", "", "csv")
-	tags := parseTagList(tagCSV)
 
 	// 4. Pick ROLLUP unit (user-specified or auto)
 	rollupUnit := argAnyStr(normalizedArgs, "rollup_unit")
@@ -278,9 +325,9 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 				fmt.Printf("[Report] Vibration raw query failed for tag %s: %v\n", tag, err)
 			}
 
-			// FFT: fetch ALL raw data in range, compute server-side, send spectrum only
+			// FFT: fetch limited raw data (131072 = 2^17 points, ~0.2Hz resolution at 25kHz sampling)
 			fftSQL := fmt.Sprintf(
-				"SELECT TIME, VALUE FROM %s WHERE NAME='%s'%s ORDER BY TIME",
+				"SELECT TIME, VALUE FROM %s WHERE NAME='%s'%s ORDER BY TIME LIMIT 131072",
 				tableName, tag, timeWhere)
 			fftCSV, err := r.client.QuerySQL(fftSQL, "", "", "csv")
 			if err == nil {
@@ -302,8 +349,55 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 		perTagJSON, _ := json.Marshal(perTagData)
 		params["PER_TAG_DATA_JSON"] = string(perTagJSON)
 		fmt.Printf("[Report] Fetched vibration data for %d tags\n", len(vibTags))
+	} else if templateID == "R-1" {
+		// --- R-1: Finance OHLCV analysis ---
+		// Note: multi-stock detection is handled earlier (before template branching)
+
+		// Filter and normalize tags for selected stock
+		ohlcvTags := findOHLCVTags(tags, stock)
+		if ohlcvTags["close"] == "" {
+			primaryTag, _ := pickTrendTags(tags)
+			if primaryTag != "" {
+				ohlcvTags["close"] = primaryTag
+			}
+		}
+		stockName := stock
+		if stockName == "" {
+			stockName = tableName
+		}
+		params["STOCK_NAME"] = stockName
+		fmt.Printf("[Report] Finance OHLCV tags: %v (stock=%q)\n", ohlcvTags, stock)
+
+		// Query ROLLUP for each OHLCV field
+		ohlcvData := map[string][]map[string]interface{}{}
+		for field, tagName := range ohlcvTags {
+			if tagName == "" {
+				continue
+			}
+			decimals := 2
+			if field == "volume" {
+				decimals = 0
+			}
+			sql := fmt.Sprintf("SELECT ROLLUP('%s',1,TIME) as t, ROUND(AVG(VALUE),%d) as v FROM %s WHERE NAME='%s'%s GROUP BY ROLLUP('%s',1,TIME) ORDER BY t",
+				rollupUnit, decimals, tableName, tagName, timeWhere, rollupUnit)
+			csvResult, err := r.client.QuerySQL(sql, "Default", "", "csv")
+			if err == nil {
+				ohlcvData[field] = parseTrendCSV(csvResult, field, rollupUnit)
+			} else {
+				fmt.Printf("[Report] OHLCV query failed for %s (%s): %v\n", field, tagName, err)
+			}
+		}
+
+		// Merge OHLCV data by time
+		trendData := mergeOHLCV(ohlcvData)
+		if len(trendData) > 0 {
+			trendJSON, _ := json.Marshal(trendData)
+			params["TREND_DATA_JSON"] = string(trendJSON)
+			params["_FINANCE_SUMMARY"] = computeFinanceSummary(trendData)
+			fmt.Printf("[Report] Fetched %d OHLCV trend data points\n", len(trendData))
+		}
 	} else {
-		// --- R-0/R-1: primary + volume trend ---
+		// --- R-0: Generic primary + volume trend ---
 		primaryTag, volumeTag := pickTrendTags(tags)
 		fmt.Printf("[Report] Tags: %v → primary=%q, volume=%q\n", tags, primaryTag, volumeTag)
 
@@ -378,6 +472,35 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 		if statsCSV != "" {
 			summary.WriteString(fmt.Sprintf("태그별 통계 (필터 적용됨):\n%s\n", statsCSV))
 		}
+		// Add chart analysis guidance per template type
+		if templateID == "R-1" {
+			if fs, ok := params["_FINANCE_SUMMARY"]; ok && fs != "" {
+				summary.WriteString("\n[차트 데이터 기반 분석 요약]\n")
+				summary.WriteString(fs)
+				summary.WriteString("\n")
+			}
+			summary.WriteString("\n★★ analysis 작성 규칙 (반드시 준수!) ★★\n")
+			summary.WriteString("데이터 구조, 정합성, 품질 설명은 쓰지 마세요. 리포트를 읽는 사람은 투자자입니다.\n")
+			summary.WriteString("통계 수치를 해석하여 아래 관점으로 실질적 인사이트를 작성하세요:\n\n")
+			summary.WriteString("1. 가격 추세 판단: 현재 상승/하락/횡보 중 어디인지, 최근 가격이 과거 대비 어느 위치인지\n")
+			summary.WriteString("2. 캔들스틱 패턴: 통계에서 open과 close 관계로 양봉/음봉 우세 판단\n")
+			summary.WriteString("3. 이동평균 분석: 단기(MA5) vs 중기(MA20) vs 장기(MA60) 배열 상태, 골든크로스/데드크로스 가능성\n")
+			summary.WriteString("4. 변동성 분석: high-low 스프레드, 볼린저밴드 폭으로 현재 변동성 수준 평가\n")
+			summary.WriteString("5. 거래량-가격 상관: 가격 움직임에 거래량이 동반되는지 (추세 신뢰도)\n")
+			summary.WriteString("6. 투자 시 고려사항: 현재 시점에서 주의할 리스크, 주목할 기회\n\n")
+			summary.WriteString("★★ recommendations도 투자 관점에서 구체적 행동 지침으로 작성하세요 ★★\n")
+		} else if templateID == "R-2" {
+			summary.WriteString("\n★★ analysis 작성 규칙 (반드시 준수!) ★★\n")
+			summary.WriteString("데이터 구조, 정합성, 품질 설명은 쓰지 마세요. 리포트를 읽는 사람은 설비 관리자입니다.\n")
+			summary.WriteString("통계 수치를 해석하여 아래 관점으로 실질적 인사이트를 작성하세요:\n\n")
+			summary.WriteString("1. 진동 수준 평가: RMS/Peak 값이 정상 범위인지, ISO 10816 기준 등급\n")
+			summary.WriteString("2. 원시 파형 분석: 충격성 신호, 주기적 패턴, 비정상 파형 특징\n")
+			summary.WriteString("3. RMS 추이: 시간에 따른 진동 에너지 변화 추세, 악화 징후 유무\n")
+			summary.WriteString("4. Peak-to-Peak/Crest Factor: 충격성 진동 정도, 베어링/기어 결함 가능성\n")
+			summary.WriteString("5. FFT 스펙트럼: 주요 주파수 성분 해석, 회전체 결함 주파수 패턴\n")
+			summary.WriteString("6. 설비 관리 시 주의사항: 현재 상태에서의 리스크, 점검 필요 여부\n\n")
+			summary.WriteString("★★ recommendations도 설비 관리 관점에서 구체적 조치 사항으로 작성하세요 ★★\n")
+		}
 		msg := fmt.Sprintf("데이터를 조회했습니다. 아래 **필터된 통계**를 기반으로 analysis와 recommendations를 작성하여 다시 호출하세요.\n\n%s", summary.String())
 		if !hasAnalysis {
 			msg += "\n※ analysis 파라미터가 누락되었습니다."
@@ -403,7 +526,11 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 	}
 
 	reportURL := r.client.BaseURL + "/db/tql/" + filename
-	return fmt.Sprintf("Report saved: %s\n[리포트 열기](%s)", filename, reportURL), nil
+	result := fmt.Sprintf("Report saved: %s\n[리포트 열기](%s)", filename, reportURL)
+	if autoSelectedStock != "" {
+		result = fmt.Sprintf("종목이 지정되지 않아 첫 번째 종목 '%s'을(를) 자동 선택하여 분석했습니다.\n\n%s", autoSelectedStock, result)
+	}
+	return result, nil
 }
 
 // --- CSV parsing helpers ---
@@ -596,8 +723,14 @@ func calcTotalCount(csvData string) int {
 }
 
 func parseTagList(csvData string) []string {
+	if csvData == "" {
+		return nil
+	}
 	reader := csv.NewReader(strings.NewReader(csvData))
 	records, _ := reader.ReadAll()
+	if len(records) < 2 {
+		return nil
+	}
 	var tags []string
 	for _, rec := range records[1:] { // skip header
 		if len(rec) > 0 && rec[0] != "" {
@@ -646,6 +779,345 @@ func pickTrendTags(tags []string) (primary string, volume string) {
 	}
 
 	return
+}
+
+// detectMultiStock checks if tags follow the XXX_close pattern (multi-stock table).
+func detectMultiStock(tags []string) bool {
+	for _, t := range tags {
+		if strings.HasSuffix(strings.ToLower(t), "_close") {
+			return true
+		}
+	}
+	return false
+}
+
+// extractStockNames extracts unique stock prefixes from tags like AAPL_close.
+func extractStockNames(tags []string) []string {
+	seen := map[string]bool{}
+	var stocks []string
+	for _, t := range tags {
+		idx := strings.LastIndex(t, "_")
+		if idx > 0 {
+			prefix := t[:idx]
+			if !seen[prefix] {
+				seen[prefix] = true
+				stocks = append(stocks, prefix)
+			}
+		}
+	}
+	return stocks
+}
+
+// findOHLCVTags maps OHLCV field names to actual tag names.
+// If stock is non-empty, filters tags by prefix (e.g., "AAPL" matches "AAPL_close").
+// If stock is empty, looks for tags named "close", "open", etc. directly.
+func findOHLCVTags(tags []string, stock string) map[string]string {
+	result := map[string]string{}
+	fields := []string{"open", "high", "low", "close", "volume"}
+
+	if stock != "" {
+		prefix := strings.ToUpper(stock) + "_"
+		for _, t := range tags {
+			upper := strings.ToUpper(t)
+			if strings.HasPrefix(upper, prefix) {
+				suffix := strings.ToLower(t[len(prefix):])
+				for _, f := range fields {
+					if suffix == f {
+						result[f] = t
+						break
+					}
+				}
+			}
+		}
+	} else {
+		lower := map[string]string{}
+		for _, t := range tags {
+			lower[strings.ToLower(t)] = t
+		}
+		for _, f := range fields {
+			if orig, ok := lower[f]; ok {
+				result[f] = orig
+			}
+		}
+	}
+	return result
+}
+
+// mergeOHLCV merges separate OHLCV trend arrays into unified time-series.
+func mergeOHLCV(ohlcvData map[string][]map[string]interface{}) []map[string]interface{} {
+	// Build time-indexed map from all fields
+	timeMap := map[string]map[string]interface{}{}
+	var timeOrder []string
+
+	// Use close as primary time source, fallback to any available field
+	primaryField := "close"
+	if _, ok := ohlcvData[primaryField]; !ok {
+		for f := range ohlcvData {
+			primaryField = f
+			break
+		}
+	}
+
+	// Collect all time points from primary field
+	if primary, ok := ohlcvData[primaryField]; ok {
+		for _, item := range primary {
+			t, _ := item["time"].(string)
+			if t == "" {
+				continue
+			}
+			if _, exists := timeMap[t]; !exists {
+				timeMap[t] = map[string]interface{}{"time": t}
+				timeOrder = append(timeOrder, t)
+			}
+			if v, ok := item[primaryField]; ok {
+				timeMap[t][primaryField] = v
+			}
+		}
+	}
+
+	// Merge other fields
+	for field, items := range ohlcvData {
+		if field == primaryField {
+			continue
+		}
+		for _, item := range items {
+			t, _ := item["time"].(string)
+			if t == "" {
+				continue
+			}
+			if _, exists := timeMap[t]; !exists {
+				timeMap[t] = map[string]interface{}{"time": t}
+				timeOrder = append(timeOrder, t)
+			}
+			if v, ok := item[field]; ok {
+				timeMap[t][field] = v
+			}
+		}
+	}
+
+	// Build result in time order
+	var result []map[string]interface{}
+	for _, t := range timeOrder {
+		result = append(result, timeMap[t])
+	}
+	return result
+}
+
+// computeFinanceSummary generates a text summary of OHLCV trend data for LLM analysis.
+func computeFinanceSummary(trendData []map[string]interface{}) string {
+	if len(trendData) == 0 {
+		return ""
+	}
+	var b strings.Builder
+
+	// Helper to parse float from interface
+	toFloat := func(v interface{}) float64 {
+		switch val := v.(type) {
+		case float64:
+			return val
+		case string:
+			var f float64
+			fmt.Sscanf(val, "%f", &f)
+			return f
+		}
+		return 0
+	}
+
+	// Collect close prices
+	type point struct {
+		time  string
+		close float64
+		open  float64
+		high  float64
+		low   float64
+		vol   float64
+	}
+	var pts []point
+	for _, d := range trendData {
+		p := point{}
+		if t, ok := d["time"]; ok {
+			p.time, _ = t.(string)
+		}
+		if v, ok := d["close"]; ok {
+			p.close = toFloat(v)
+		}
+		if v, ok := d["open"]; ok {
+			p.open = toFloat(v)
+		}
+		if v, ok := d["high"]; ok {
+			p.high = toFloat(v)
+		}
+		if v, ok := d["low"]; ok {
+			p.low = toFloat(v)
+		}
+		if v, ok := d["volume"]; ok {
+			p.vol = toFloat(v)
+		}
+		if p.close > 0 {
+			pts = append(pts, p)
+		}
+	}
+	if len(pts) == 0 {
+		return ""
+	}
+
+	// 1. Trend direction
+	first := pts[0]
+	last := pts[len(pts)-1]
+	changeRate := 0.0
+	if first.close > 0 {
+		changeRate = (last.close - first.close) / first.close * 100
+	}
+	direction := "횡보"
+	if changeRate > 5 {
+		direction = "상승"
+	} else if changeRate < -5 {
+		direction = "하락"
+	}
+	b.WriteString(fmt.Sprintf("- 추세: %s → %s (%.1f → %.1f, %.1f%% %s)\n",
+		first.time, last.time, first.close, last.close, changeRate, direction))
+
+	// 2. Recent candle pattern (last 20 bars)
+	recentN := 20
+	if recentN > len(pts) {
+		recentN = len(pts)
+	}
+	recent := pts[len(pts)-recentN:]
+	bullish := 0
+	bearish := 0
+	for _, p := range recent {
+		if p.open > 0 {
+			if p.close >= p.open {
+				bullish++
+			} else {
+				bearish++
+			}
+		}
+	}
+	if bullish+bearish > 0 {
+		dominant := "중립"
+		if bullish > bearish+2 {
+			dominant = "강세 우위"
+		} else if bearish > bullish+2 {
+			dominant = "약세 우위"
+		}
+		b.WriteString(fmt.Sprintf("- 최근 %d봉: 양봉 %d개, 음봉 %d개 (%s)\n", recentN, bullish, bearish, dominant))
+	}
+
+	// 3. Moving averages
+	calcMA := func(data []point, period int) float64 {
+		if len(data) < period {
+			return 0
+		}
+		sum := 0.0
+		for i := len(data) - period; i < len(data); i++ {
+			sum += data[i].close
+		}
+		return sum / float64(period)
+	}
+	ma5 := calcMA(pts, 5)
+	ma20 := calcMA(pts, 20)
+	ma60 := calcMA(pts, 60)
+	if ma5 > 0 && ma20 > 0 {
+		arrangement := ""
+		if ma60 > 0 {
+			if ma5 > ma20 && ma20 > ma60 {
+				arrangement = "정배열 (강세)"
+			} else if ma5 < ma20 && ma20 < ma60 {
+				arrangement = "역배열 (약세)"
+			} else {
+				arrangement = "혼조"
+			}
+			b.WriteString(fmt.Sprintf("- 이동평균: MA5(%.1f) / MA20(%.1f) / MA60(%.1f) → %s\n", ma5, ma20, ma60, arrangement))
+		} else {
+			if ma5 > ma20 {
+				arrangement = "단기 우위"
+			} else {
+				arrangement = "단기 열위"
+			}
+			b.WriteString(fmt.Sprintf("- 이동평균: MA5(%.1f) / MA20(%.1f) → %s\n", ma5, ma20, arrangement))
+		}
+	}
+
+	// 4. Volatility (high-low spread)
+	hasHL := false
+	totalSpread := 0.0
+	recentSpread := 0.0
+	spreadCount := 0
+	recentSpreadCount := 0
+	for i, p := range pts {
+		if p.high > 0 && p.low > 0 {
+			hasHL = true
+			spread := p.high - p.low
+			totalSpread += spread
+			spreadCount++
+			if i >= len(pts)-recentN {
+				recentSpread += spread
+				recentSpreadCount++
+			}
+		}
+	}
+	if hasHL && spreadCount > 0 {
+		avgSpread := totalSpread / float64(spreadCount)
+		avgRecent := recentSpread / float64(recentSpreadCount)
+		volState := "보합"
+		if avgRecent > avgSpread*1.2 {
+			volState = "확대"
+		} else if avgRecent < avgSpread*0.8 {
+			volState = "축소"
+		}
+		b.WriteString(fmt.Sprintf("- 변동성: 전체 평균 스프레드 %.1f, 최근 %.1f → 변동성 %s\n", avgSpread, avgRecent, volState))
+	}
+
+	// 5. High/Low points
+	maxClose := pts[0]
+	minClose := pts[0]
+	for _, p := range pts {
+		if p.close > maxClose.close {
+			maxClose = p
+		}
+		if p.close < minClose.close {
+			minClose = p
+		}
+	}
+	b.WriteString(fmt.Sprintf("- 최고가 구간: %s (%.1f)\n", maxClose.time, maxClose.close))
+	b.WriteString(fmt.Sprintf("- 최저가 구간: %s (%.1f)\n", minClose.time, minClose.close))
+
+	// 6. Volume trend (if available)
+	hasVol := false
+	totalVol := 0.0
+	recentVol := 0.0
+	volCount := 0
+	recentVolCount := 0
+	for i, p := range pts {
+		if p.vol > 0 {
+			hasVol = true
+			totalVol += p.vol
+			volCount++
+			if i >= len(pts)-recentN {
+				recentVol += p.vol
+				recentVolCount++
+			}
+		}
+	}
+	if hasVol && volCount > 0 && recentVolCount > 0 {
+		avgVol := totalVol / float64(volCount)
+		avgRecentVol := recentVol / float64(recentVolCount)
+		ratio := avgRecentVol / avgVol
+		volTrend := "보합"
+		if ratio > 1.3 {
+			volTrend = "급증"
+		} else if ratio > 1.1 {
+			volTrend = "증가"
+		} else if ratio < 0.7 {
+			volTrend = "급감"
+		} else if ratio < 0.9 {
+			volTrend = "감소"
+		}
+		b.WriteString(fmt.Sprintf("- 거래량: 전체 평균 %.0f, 최근 평균 %.0f (%.1f배, %s)\n", avgVol, avgRecentVol, ratio, volTrend))
+	}
+
+	return b.String()
 }
 
 // --- Time + Markdown helpers ---
@@ -897,6 +1369,7 @@ func computeFFTSpectrum(rawCSV string, maxBins int) map[string]interface{} {
 	reader := csv.NewReader(strings.NewReader(rawCSV))
 	records, _ := reader.ReadAll()
 	if len(records) < 9 { // header + at least 8 data rows
+		fmt.Printf("[FFT] Insufficient records: %d (need >= 9)\n", len(records))
 		return nil
 	}
 	dataRows := records[1:]
@@ -919,6 +1392,7 @@ func computeFFTSpectrum(rawCSV string, maxBins int) map[string]interface{} {
 	}
 	dtSec := (lastNs - firstNs) / 1e9 / float64(N-1)
 	if dtSec <= 0 {
+		fmt.Printf("[FFT] Invalid dtSec: %.6f (firstNs=%.0f, lastNs=%.0f, N=%d)\n", dtSec, firstNs, lastNs, N)
 		return nil
 	}
 	sampleRate := 1.0 / dtSec

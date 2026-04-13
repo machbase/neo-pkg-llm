@@ -167,6 +167,14 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 
 			// 대시보드 시간 보정 (도구 실행 직전, dataMinDt/dataMaxDt가 캡처된 후)
 			if dashboardTools[tc.Function.Name] {
+				// Only fix time if LLM didn't already set it
+				existingStart, hasStart := tc.Function.Arguments["time_start"]
+				existingEnd, hasEnd := tc.Function.Arguments["time_end"]
+				_, startIsStr := existingStart.(string)
+				_, endIsStr := existingEnd.(string)
+				needsStartFix := !hasStart || !startIsStr || existingStart.(string) == ""
+				needsEndFix := !hasEnd || !endIsStr || existingEnd.(string) == ""
+
 				startDt, endDt := a.timeStartDt, a.timeEndDt
 				if startDt == "" && a.dataMinDt != "" {
 					startDt = a.dataMinDt
@@ -175,13 +183,19 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 					endDt = a.dataMaxDt
 				}
 				if startDt != "" && endDt != "" {
-					if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
-						tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
+					if needsStartFix {
+						if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
+							tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
+						}
 					}
-					if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
-						tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
+					if needsEndFix {
+						if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
+							tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
+						}
 					}
-					fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
+					if needsStartFix || needsEndFix {
+						fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
+					}
 				}
 			}
 
@@ -346,6 +360,13 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 
 				// 대시보드 시간 보정 (도구 실행 직전, dataMinDt/dataMaxDt가 캡처된 후)
 				if dashboardTools[tc.Function.Name] {
+					existingStart2, hasStart2 := tc.Function.Arguments["time_start"]
+					existingEnd2, hasEnd2 := tc.Function.Arguments["time_end"]
+					_, startIsStr2 := existingStart2.(string)
+					_, endIsStr2 := existingEnd2.(string)
+					needsStartFix2 := !hasStart2 || !startIsStr2 || existingStart2.(string) == ""
+					needsEndFix2 := !hasEnd2 || !endIsStr2 || existingEnd2.(string) == ""
+
 					startDt, endDt := a.timeStartDt, a.timeEndDt
 					if startDt == "" && a.dataMinDt != "" {
 						startDt = a.dataMinDt
@@ -354,13 +375,19 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 						endDt = a.dataMaxDt
 					}
 					if startDt != "" && endDt != "" {
-						if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
-							tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
+						if needsStartFix2 {
+							if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
+								tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
+							}
 						}
-						if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
-							tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
+						if needsEndFix2 {
+							if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
+								tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
+							}
 						}
-						fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
+						if needsStartFix2 || needsEndFix2 {
+							fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
+						}
 					}
 				}
 
@@ -434,6 +461,15 @@ func isReportQuery(query string) bool {
 	q := strings.ToLower(query)
 	for _, kw := range reportKeywords {
 		if strings.Contains(q, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAny(s string, keywords []string) bool {
+	for _, kw := range keywords {
+		if strings.Contains(s, kw) {
 			return true
 		}
 	}
@@ -686,8 +722,17 @@ func (a *Agent) initMessages(query string) {
 	if isReportQuery(query) {
 		a.reportMode = true
 		a.advanced = false
+		templateHint := ""
+		queryLower := strings.ToLower(query)
+		if containsAny(queryLower, []string{"금융", "주식", "종목", "주가", "환율", "원자재", "finance", "stock"}) {
+			templateHint = " template_id='R-1'로 지정하세요."
+		} else if containsAny(queryLower, []string{"진동", "vibration", "베어링", "bearing", "가속도", "설비"}) {
+			templateHint = " template_id='R-2'로 지정하세요."
+		}
 		userContent += "\n\n[시스템 힌트: HTML 분석 리포트 요청입니다. " +
-			"반드시 save_html_report 도구의 설명에 있는 절차를 따르세요. " +
+			"사전 쿼리(execute_sql_query, list_table_tags) 없이 save_html_report(table=테이블명)을 바로 호출하세요." +
+			templateHint + " " +
+			"통계/태그/시간범위는 도구가 내부에서 처리합니다. " +
 			"create_dashboard_with_charts, create_dashboard, add_chart_to_dashboard, save_tql_file, create_folder 사용 절대 금지! " +
 			"오직 save_html_report만 사용하세요. " + timeHint + "]"
 	} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
@@ -742,7 +787,7 @@ func (a *Agent) ContinueMessages(query string) {
 		if isReportQuery(query) {
 			a.reportMode = true
 			a.advanced = false
-			userContent += "\n\n[HTML 분석 리포트 절차를 따르세요. save_html_report로 저장하세요.]"
+			userContent += "\n\n[사전 쿼리 없이 save_html_report(table=테이블명)을 바로 호출하세요.]"
 		} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
 			if isAdvancedQuery(query) {
 				a.advanced = true

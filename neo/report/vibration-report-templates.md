@@ -167,7 +167,7 @@
 
   <!-- FFT Spectrum -->
   <div class="section">
-    <div class="section-title"><div class="icon icon-green">&#128202;</div> FFT 주파수 스펙트럼</div>
+    <div class="section-title"><div class="icon icon-green">&#128202;</div> FFT 주파수 스펙트럼 (0.2 Hz 해상도)</div>
     <div class="chart-full chart-wrap"><canvas id="fftChart" height="300"></canvas><div class="tooltip" id="fftTip"></div></div>
   </div>
 
@@ -436,6 +436,8 @@
       addZoom('fftChart',fMags.length,function(s,e){
         drawLineChart('fftChart','fftTip',fLabels.slice(s,e),fMags.slice(s,e),colors.fft,300,null,fTip.slice(s,e));
       });
+    } else {
+      var fc=document.getElementById('fftChart');if(fc){var fctx=fc.getContext('2d');fctx.clearRect(0,0,fc.width,fc.height);fctx.fillStyle='#8e99a4';fctx.font='14px Segoe UI';fctx.textAlign='center';fctx.fillText('FFT 데이터 없음',fc.width/2,fc.height/2);}
     }
 
     // --- Gauge + Stats ---
