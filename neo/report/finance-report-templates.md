@@ -296,6 +296,27 @@
       drawFn();
     }, { passive: false });
     cv.addEventListener('dblclick', function() { state.start = 0; state.end = dataLen; state.zoomed = false; drawFn(); });
+    // Drag to pan
+    var drag = { active: false, startX: 0, startS: 0, startE: 0 };
+    cv.addEventListener('mousedown', function(ev) {
+      if (state.end - state.start >= dataLen) return;
+      drag.active = true; drag.startX = ev.clientX; drag.startS = state.start; drag.startE = state.end;
+      cv.style.cursor = 'grabbing';
+    });
+    cv.addEventListener('mousemove', function(ev) {
+      if (!drag.active) return;
+      var rect = cv.getBoundingClientRect(), cw = rect.width - 115;
+      var n = drag.startE - drag.startS;
+      var shift = Math.round(-(ev.clientX - drag.startX) / cw * n);
+      var ns = drag.startS + shift, ne = drag.startE + shift;
+      if (ns < 0) { ns = 0; ne = n; }
+      if (ne > dataLen) { ne = dataLen; ns = dataLen - n; }
+      state.start = ns; state.end = ne; state.zoomed = true;
+      drawFn();
+    });
+    function endDrag() { drag.active = false; cv.style.cursor = 'crosshair'; }
+    cv.addEventListener('mouseup', endDrag);
+    cv.addEventListener('mouseleave', endDrag);
   }
 
   /* ---- Draw grid + Y axis ---- */

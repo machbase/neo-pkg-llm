@@ -234,10 +234,13 @@
   function addZoom(canvasId,fullLen,drawFn){
     var cv=document.getElementById(canvasId);if(!cv)return;
     var st={s:0,e:fullLen};
-    // Remove old handlers
     if(zoomHandlers[canvasId]){
       cv.removeEventListener('wheel',zoomHandlers[canvasId].w);
       cv.removeEventListener('dblclick',zoomHandlers[canvasId].d);
+      cv.removeEventListener('mousedown',zoomHandlers[canvasId].md);
+      cv.removeEventListener('mousemove',zoomHandlers[canvasId].mm);
+      cv.removeEventListener('mouseup',zoomHandlers[canvasId].mu);
+      cv.removeEventListener('mouseleave',zoomHandlers[canvasId].ml);
     }
     function onWheel(ev){
       ev.preventDefault();
@@ -252,9 +255,17 @@
       st.s=Math.max(0,ns);st.e=ne;drawFn(st.s,st.e);
     }
     function onDbl(){st.s=0;st.e=fullLen;drawFn(st.s,st.e);}
+    var drag={active:false,startX:0,startS:0,startE:0};
+    function onDown(ev){if(st.e-st.s>=fullLen)return;drag.active=true;drag.startX=ev.clientX;drag.startS=st.s;drag.startE=st.e;cv.style.cursor='grabbing';}
+    function onMove(ev){if(!drag.active)return;var rect=cv.getBoundingClientRect(),cw=rect.width-100,n=drag.startE-drag.startS;var shift=Math.round(-(ev.clientX-drag.startX)/cw*n);var ns=drag.startS+shift,ne=drag.startE+shift;if(ns<0){ns=0;ne=n;}if(ne>fullLen){ne=fullLen;ns=fullLen-n;}st.s=ns;st.e=ne;drawFn(st.s,st.e);}
+    function onUp(){drag.active=false;cv.style.cursor='crosshair';}
     cv.addEventListener('wheel',onWheel,{passive:false});
     cv.addEventListener('dblclick',onDbl);
-    zoomHandlers[canvasId]={w:onWheel,d:onDbl};
+    cv.addEventListener('mousedown',onDown);
+    cv.addEventListener('mousemove',onMove);
+    cv.addEventListener('mouseup',onUp);
+    cv.addEventListener('mouseleave',onUp);
+    zoomHandlers[canvasId]={w:onWheel,d:onDbl,md:onDown,mm:onMove,mu:onUp,ml:onUp};
   }
 
   // --- Populate dropdown ---

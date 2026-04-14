@@ -726,8 +726,10 @@ func (a *Agent) initMessages(query string) {
 		queryLower := strings.ToLower(query)
 		if containsAny(queryLower, []string{"금융", "주식", "종목", "주가", "환율", "원자재", "finance", "stock"}) {
 			templateHint = " template_id='R-1'로 지정하세요."
-		} else if containsAny(queryLower, []string{"진동", "vibration", "베어링", "bearing", "가속도", "설비"}) {
+		} else if containsAny(queryLower, []string{"진동", "vibration", "베어링", "bearing"}) {
 			templateHint = " template_id='R-2'로 지정하세요."
+		} else if containsAny(queryLower, []string{"운전", "운행", "주행", "차량", "driving", "드라이빙"}) {
+			templateHint = " template_id='R-3'로 지정하세요."
 		}
 		userContent += "\n\n[시스템 힌트: HTML 분석 리포트 요청입니다. " +
 			"사전 쿼리(execute_sql_query, list_table_tags) 없이 save_html_report(table=테이블명)을 바로 호출하세요." +

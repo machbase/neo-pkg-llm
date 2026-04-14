@@ -56,7 +56,7 @@ func (r *Registry) registerReportTools() {
 			Properties: map[string]ToolProperty{
 				"template_id": {
 					Type:        "string",
-					Description: "템플릿 ID. 진동: 'R-2', 금융: 'R-1', 범용: 'R-0' (기본값)",
+					Description: "템플릿 ID. 운전/차량: 'R-3', 진동: 'R-2', 금융: 'R-1', 범용: 'R-0' (기본값)",
 				},
 				"table": {
 					Type:        "string",
@@ -201,6 +201,30 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 
 	// 2. Multi-stock detection (before stats query to filter)
 	stock := argAnyStr(normalizedArgs, "stock")
+	// LLM often sends the stock name via "tag"/"tags" param instead of "stock"
+	if stock == "" {
+		tagVal := argAnyStr(normalizedArgs, "tag")
+		if tagVal == "" {
+			tagVal = argAnyStr(normalizedArgs, "tags")
+		}
+		if tagVal != "" {
+			// Strip common suffixes like _close, _open etc. to extract stock name
+			candidate := strings.Split(tagVal, ",")[0] // take first if comma-separated
+			candidate = strings.TrimSpace(candidate)
+			for _, suffix := range []string{"_close", "_open", "_high", "_low", "_volume", "_adj_close"} {
+				if idx := strings.Index(strings.ToLower(candidate), suffix); idx > 0 {
+					candidate = candidate[:idx]
+					break
+				}
+			}
+			// Verify this looks like a stock name (all caps, no underscore remaining)
+			upper := strings.ToUpper(candidate)
+			if len(upper) >= 1 && len(upper) <= 10 && !strings.Contains(upper, "_") {
+				stock = upper
+				fmt.Printf("[Report] Extracted stock '%s' from tag param\n", stock)
+			}
+		}
+	}
 	autoSelectedStock := ""
 	if detectMultiStock(tags) && stock == "" {
 		stocks := extractStockNames(tags)
@@ -245,12 +269,18 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 		}
 	}
 
-	// 3. Tag stats (filtered by stock if multi-stock)
-	statsSQL := fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s%s%s GROUP BY NAME", tableName, timeWhereBase, stockWhere)
-	if stockWhere == "" && timeWhereBase == "" {
+	// 3. Tag stats (filtered by stock if multi-stock, exclude non-IMU for R-3)
+	excludeWhere := ""
+	if templateID == "R-3" {
+		excludeWhere = " AND NAME NOT IN ('Class','class','Label','label','Target','target')"
+	}
+	statsSQL := fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s%s%s%s GROUP BY NAME", tableName, timeWhereBase, stockWhere, excludeWhere)
+	if stockWhere == "" && timeWhereBase == "" && excludeWhere == "" {
 		statsSQL = fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s GROUP BY NAME", tableName)
+	} else if stockWhere == "" && timeWhereBase == "" && excludeWhere != "" {
+		statsSQL = fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s WHERE%s GROUP BY NAME", tableName, excludeWhere[4:])
 	} else if stockWhere != "" && timeWhereBase == "" {
-		statsSQL = fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s WHERE%s GROUP BY NAME", tableName, stockWhere[4:])
+		statsSQL = fmt.Sprintf("SELECT NAME, COUNT(*) as cnt, ROUND(AVG(VALUE),2) as avg, ROUND(MIN(VALUE),2) as min, ROUND(MAX(VALUE),2) as max FROM %s WHERE%s%s GROUP BY NAME", tableName, stockWhere[4:], excludeWhere)
 	}
 	statsCSV, err := r.client.QuerySQL(statsSQL, "", "", "csv")
 	if err == nil {
@@ -349,6 +379,208 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 		perTagJSON, _ := json.Marshal(perTagData)
 		params["PER_TAG_DATA_JSON"] = string(perTagJSON)
 		fmt.Printf("[Report] Fetched vibration data for %d tags\n", len(vibTags))
+	} else if templateID == "R-3" {
+		// --- R-3: Driving behavior analysis ---
+		tagListJSON, _ := json.Marshal(tags)
+		params["TAG_LIST_JSON"] = string(tagListJSON)
+
+		// Filter out non-IMU tags (e.g. Class, Label)
+		imuTags := []string{}
+		for _, tag := range tags {
+			tl := strings.ToLower(tag)
+			if tl == "class" || tl == "label" || tl == "target" {
+				continue
+			}
+			imuTags = append(imuTags, tag)
+		}
+		if len(imuTags) > 10 {
+			imuTags = imuTags[:10]
+		}
+
+		perTagData := map[string]interface{}{}
+		for _, tag := range imuTags {
+			tagData := map[string]interface{}{}
+
+			// Rollup: AVG, MIN, MAX
+			rollupSQL := fmt.Sprintf(
+				"SELECT ROLLUP('%s',1,TIME) as t, ROUND(AVG(VALUE),6) as avg_val, "+
+					"ROUND(MIN(VALUE),6) as min_val, ROUND(MAX(VALUE),6) as max_val "+
+					"FROM %s WHERE NAME='%s'%s "+
+					"GROUP BY ROLLUP('%s',1,TIME) ORDER BY t",
+				rollupUnit, tableName, tag, timeWhere, rollupUnit)
+			rollupCSV, err := r.client.QuerySQL(rollupSQL, "Default", "", "csv")
+			if err == nil {
+				tagData["rollup"] = parseDrivingRollupCSV(rollupCSV, rollupUnit)
+			} else {
+				fmt.Printf("[Report] Driving rollup query failed for tag %s: %v\n", tag, err)
+			}
+
+			// Raw waveform (4096 points)
+			rawSQL := fmt.Sprintf(
+				"SELECT TIME, VALUE FROM %s WHERE NAME='%s'%s ORDER BY TIME LIMIT 4096",
+				tableName, tag, timeWhere)
+			rawCSV, err := r.client.QuerySQL(rawSQL, "", "", "csv")
+			if err == nil {
+				tagData["raw"] = parseVibRawCSV(rawCSV) // reuse existing parser
+			}
+
+			perTagData[tag] = tagData
+		}
+
+		// Compute adaptive thresholds: mean ± 2*stddev per axis
+		thresholds := map[string][2]float64{} // tag -> [upper, lower]
+		for _, axis := range []string{"AccX", "AccY"} {
+			actualTag := ""
+			for _, t := range tags {
+				if strings.EqualFold(t, axis) {
+					actualTag = t
+					break
+				}
+			}
+			if actualTag == "" {
+				continue
+			}
+			statSQL := fmt.Sprintf(
+				"SELECT ROUND(AVG(VALUE),6), ROUND(STDDEV(VALUE),6) FROM %s WHERE NAME='%s'%s",
+				tableName, actualTag, timeWhere)
+			statCSV, err := r.client.QuerySQL(statSQL, "", "", "csv")
+			if err == nil {
+				recs, _ := csv.NewReader(strings.NewReader(statCSV)).ReadAll()
+				if len(recs) >= 2 && len(recs[1]) >= 2 {
+					var avg, sd float64
+					fmt.Sscanf(strings.TrimSpace(recs[1][0]), "%f", &avg)
+					fmt.Sscanf(strings.TrimSpace(recs[1][1]), "%f", &sd)
+					thresholds[axis] = [2]float64{avg + 2*sd, avg - 2*sd}
+					fmt.Printf("[Report] Threshold %s: upper=%.4f, lower=%.4f (avg=%.4f, sd=%.4f)\n", axis, avg+2*sd, avg-2*sd, avg, sd)
+				}
+			}
+		}
+
+		// Event detection from AccX/AccY raw data (up to 50000 points)
+		eventsData := map[string]interface{}{
+			"accel": []map[string]interface{}{},
+			"brake": []map[string]interface{}{},
+			"turn":  []map[string]interface{}{},
+		}
+		for _, axis := range []struct {
+			tag    string
+			events []string
+		}{
+			{"AccX", []string{"accel", "brake"}},
+			{"AccY", []string{"turn"}},
+		} {
+			actualTag := ""
+			for _, t := range tags {
+				if strings.EqualFold(t, axis.tag) {
+					actualTag = t
+					break
+				}
+			}
+			if actualTag == "" {
+				continue
+			}
+			th, hasTh := thresholds[axis.tag]
+			if !hasTh {
+				continue
+			}
+			eventSQL := fmt.Sprintf(
+				"SELECT TIME, VALUE FROM %s WHERE NAME='%s'%s ORDER BY TIME LIMIT 50000",
+				tableName, actualTag, timeWhere)
+			eventCSV, err := r.client.QuerySQL(eventSQL, "", "", "csv")
+			if err != nil {
+				continue
+			}
+			parsed := parseVibRawCSV(eventCSV)
+			timesRaw, _ := parsed["times_ms"].([]float64)
+			valsRaw, _ := parsed["values"].([]float64)
+			for i, v := range valsRaw {
+				if i >= len(timesRaw) {
+					break
+				}
+				tMs := timesRaw[i]
+				if strings.EqualFold(axis.tag, "AccX") {
+					if v > th[0] { // upper threshold → 급가속
+						eventsData["accel"] = append(eventsData["accel"].([]map[string]interface{}), map[string]interface{}{"t_ms": tMs, "value": v})
+					} else if v < th[1] { // lower threshold → 급제동
+						eventsData["brake"] = append(eventsData["brake"].([]map[string]interface{}), map[string]interface{}{"t_ms": tMs, "value": v})
+					}
+				} else if strings.EqualFold(axis.tag, "AccY") {
+					if v > th[0] || v < th[1] { // 양방향 → 급회전
+						eventsData["turn"] = append(eventsData["turn"].([]map[string]interface{}), map[string]interface{}{"t_ms": tMs, "value": v})
+					}
+				}
+			}
+		}
+		accelCount := len(eventsData["accel"].([]map[string]interface{}))
+		brakeCount := len(eventsData["brake"].([]map[string]interface{}))
+		turnCount := len(eventsData["turn"].([]map[string]interface{}))
+		totalEvents := accelCount + brakeCount + turnCount
+
+		// Count total samples scanned for rate-based scoring
+		totalSamples := 0
+		for _, axis := range []string{"AccX", "AccY"} {
+			for _, t := range tags {
+				if strings.EqualFold(t, axis) {
+					actualTag := t
+					cntSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE NAME='%s'%s", tableName, actualTag, timeWhere)
+					cntCSV, err := r.client.QuerySQL(cntSQL, "", "", "csv")
+					if err == nil {
+						cntRecs, _ := csv.NewReader(strings.NewReader(cntCSV)).ReadAll()
+						if len(cntRecs) >= 2 && len(cntRecs[1]) >= 1 {
+							var cnt int
+							fmt.Sscanf(strings.TrimSpace(cntRecs[1][0]), "%d", &cnt)
+							totalSamples += cnt
+						}
+					}
+					break
+				}
+			}
+		}
+		if totalSamples == 0 {
+			totalSamples = 1 // avoid division by zero
+		}
+
+		// Event rates (percentage of total samples)
+		accelRate := float64(accelCount) / float64(totalSamples) * 100
+		brakeRate := float64(brakeCount) / float64(totalSamples) * 100
+		turnRate := float64(turnCount) / float64(totalSamples) * 100
+
+		fmt.Printf("[Report] Driving events: accel=%d(%.1f%%), brake=%d(%.1f%%), turn=%d(%.1f%%) out of %d samples\n",
+			accelCount, accelRate, brakeCount, brakeRate, turnCount, turnRate, totalSamples)
+
+		// Safety score: 1 - (totalEvents / totalSamples)
+		safetyScore := computeSafetyScore(totalEvents, totalSamples)
+
+		// Threshold info for chart display
+		thresholdInfo := map[string]interface{}{}
+		if th, ok := thresholds["AccX"]; ok {
+			thresholdInfo["accel_upper"] = math.Round(th[0]*1e4) / 1e4
+			thresholdInfo["brake_lower"] = math.Round(th[1]*1e4) / 1e4
+		}
+		if th, ok := thresholds["AccY"]; ok {
+			thresholdInfo["turn_upper"] = math.Round(th[0]*1e4) / 1e4
+			thresholdInfo["turn_lower"] = math.Round(th[1]*1e4) / 1e4
+		}
+
+		drivingData := map[string]interface{}{
+			"per_tag":      perTagData,
+			"events":       eventsData,
+			"safety_score": safetyScore,
+			"thresholds":   thresholdInfo,
+			"summary": map[string]interface{}{
+				"total_events":  totalEvents,
+				"accel_count":   accelCount,
+				"brake_count":   brakeCount,
+				"turn_count":    turnCount,
+				"accel_rate":    math.Round(accelRate*10) / 10,
+				"brake_rate":    math.Round(brakeRate*10) / 10,
+				"turn_rate":     math.Round(turnRate*10) / 10,
+				"total_samples": totalSamples,
+			},
+		}
+		drivingJSON, _ := json.Marshal(drivingData)
+		params["DRIVING_DATA_JSON"] = string(drivingJSON)
+		fmt.Printf("[Report] Driving data: score=%.1f, events=%d\n", safetyScore, totalEvents)
 	} else if templateID == "R-1" {
 		// --- R-1: Finance OHLCV analysis ---
 		// Note: multi-stock detection is handled earlier (before template branching)
@@ -500,6 +732,16 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 			summary.WriteString("5. FFT 스펙트럼: 주요 주파수 성분 해석, 회전체 결함 주파수 패턴\n")
 			summary.WriteString("6. 설비 관리 시 주의사항: 현재 상태에서의 리스크, 점검 필요 여부\n\n")
 			summary.WriteString("★★ recommendations도 설비 관리 관점에서 구체적 조치 사항으로 작성하세요 ★★\n")
+		} else if templateID == "R-3" {
+			summary.WriteString("\n★★ analysis 작성 규칙 (반드시 준수!) ★★\n")
+			summary.WriteString("데이터 구조, 정합성, 품질 설명은 쓰지 마세요. 리포트를 읽는 사람은 차량 관리자/운전자입니다.\n")
+			summary.WriteString("통계 수치를 해석하여 아래 관점으로 실질적 인사이트를 작성하세요:\n\n")
+			summary.WriteString("1. 안전 점수 해석: 현재 점수 수준과 의미, 개선 필요 여부\n")
+			summary.WriteString("2. 급가속/급제동 분석: 이벤트 빈도, 패턴, 운전 습관과의 연관성\n")
+			summary.WriteString("3. 급회전 분석: 횡가속도 패턴, 코너링 안정성 평가\n")
+			summary.WriteString("4. IMU 패턴: 3축 가속도/자이로 값의 범위와 안정성, 비정상 패턴\n")
+			summary.WriteString("5. 종합 운전 행태 진단: 안전 운전 수준, 주요 위험 요인\n\n")
+			summary.WriteString("★★ recommendations도 운전 습관 개선 관점에서 구체적 행동 지침으로 작성하세요 ★★\n")
 		}
 		msg := fmt.Sprintf("데이터를 조회했습니다. 아래 **필터된 통계**를 기반으로 analysis와 recommendations를 작성하여 다시 호출하세요.\n\n%s", summary.String())
 		if !hasAnalysis {
@@ -1451,6 +1693,60 @@ func computeFFTSpectrum(rawCSV string, maxBins int) map[string]interface{} {
 	}
 }
 
+// --- R-3 Driving behavior helpers ---
+
+func parseDrivingRollupCSV(csvData string, rollupUnit string) []map[string]interface{} {
+	reader := csv.NewReader(strings.NewReader(csvData))
+	records, _ := reader.ReadAll()
+	if len(records) < 2 {
+		return nil
+	}
+	trimLen := 7
+	switch rollupUnit {
+	case "sec":
+		trimLen = 19
+	case "min":
+		trimLen = 16
+	case "hour":
+		trimLen = 13
+	case "day", "week":
+		trimLen = 10
+	}
+	var items []map[string]interface{}
+	for _, rec := range records[1:] {
+		if len(rec) < 4 {
+			continue
+		}
+		t := strings.TrimSpace(rec[0])
+		if len(t) > trimLen {
+			t = t[:trimLen]
+		}
+		var avg, minV, maxV float64
+		fmt.Sscanf(strings.TrimSpace(rec[1]), "%f", &avg)
+		fmt.Sscanf(strings.TrimSpace(rec[2]), "%f", &minV)
+		fmt.Sscanf(strings.TrimSpace(rec[3]), "%f", &maxV)
+		items = append(items, map[string]interface{}{
+			"t":   t,
+			"avg": math.Round(avg*1e6) / 1e6,
+			"min": math.Round(minV*1e6) / 1e6,
+			"max": math.Round(maxV*1e6) / 1e6,
+		})
+	}
+	return items
+}
+
+func computeSafetyScore(totalEvents, totalSamples int) float64 {
+	if totalSamples == 0 {
+		return 100.0
+	}
+	ratio := float64(totalEvents) / float64(totalSamples)
+	score := (1.0 - ratio) * 100.0
+	if score < 0 {
+		score = 0
+	}
+	return math.Round(score*10) / 10
+}
+
 // formatFreqLabel formats frequency value for display
 func formatFreqLabel(f float64) string {
 	if f >= 1000 {
@@ -1462,6 +1758,8 @@ func formatFreqLabel(f float64) string {
 func mdToHTML(text string) string {
 	// Split inline numbered lists: "1. xxx 2. xxx" → separate lines
 	text = regexp.MustCompile(`\.\s+(\d+)\.\s+`).ReplaceAllString(text, ".\n$1. ")
+	// ### headings (must come before ## to avoid partial match)
+	text = regexp.MustCompile(`(?m)^###\s+(.+)$`).ReplaceAllString(text, `<h4 style="color:#1a365d;margin:20px 0 8px;font-size:15px;">$1</h4>`)
 	// ## headings
 	text = regexp.MustCompile(`(?m)^##\s+(.+)$`).ReplaceAllString(text, `<h4 style="color:#1a365d;margin:20px 0 8px;font-size:15px;">$1</h4>`)
 	// **Title** content → split
@@ -1499,8 +1797,9 @@ func mdToHTML(text string) string {
 			continue
 		}
 
-		// Bullet list
-		if strings.HasPrefix(trimmed, "- ") {
+		// Bullet list (- or *)
+		isBullet := strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ")
+		if isBullet {
 			if !inUL {
 				if inOL {
 					result = append(result, "</ol>")
@@ -1525,7 +1824,7 @@ func mdToHTML(text string) string {
 				if inOL && numRE.MatchString(next) {
 					keepOpen = true
 				}
-				if inUL && strings.HasPrefix(next, "- ") {
+				if inUL && (strings.HasPrefix(next, "- ") || strings.HasPrefix(next, "* ")) {
 					keepOpen = true
 				}
 				break
