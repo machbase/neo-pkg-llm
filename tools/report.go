@@ -57,6 +57,7 @@ func (r *Registry) registerReportTools() {
 				"template_id": {
 					Type:        "string",
 					Description: "템플릿 ID. 운전/차량: 'R-3', 진동: 'R-2', 금융: 'R-1', 범용: 'R-0' (기본값)",
+					Enum:        []string{"R-0", "R-1", "R-2", "R-3"},
 				},
 				"table": {
 					Type:        "string",
@@ -1775,12 +1776,57 @@ func mdToHTML(text string) string {
 	var result []string
 	inOL := false
 	inUL := false
+	inTable := false
+
+	tableRowRE := regexp.MustCompile(`^\|(.+)\|$`)
+	tableSepRE := regexp.MustCompile(`^\|[\s:_-]+(\|[\s:_-]+)*\|$`)
 
 	numRE := regexp.MustCompile(`^(\d+[.)]\s+|[①②③④⑤⑥⑦⑧⑨⑩])`)
 	numStripRE := regexp.MustCompile(`^(\d+[.)]\s+|[①②③④⑤⑥⑦⑧⑨⑩]\s*)`)
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
+
+		// Markdown table
+		if tableRowRE.MatchString(trimmed) {
+			// Skip separator row (|---|---|)
+			if tableSepRE.MatchString(trimmed) {
+				continue
+			}
+			cells := strings.Split(strings.Trim(trimmed, "|"), "|")
+			if !inTable {
+				// Close any open list
+				if inOL {
+					result = append(result, "</ol>")
+					inOL = false
+				}
+				if inUL {
+					result = append(result, "</ul>")
+					inUL = false
+				}
+				inTable = true
+				result = append(result, `<table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;">`)
+				// First row is header
+				result = append(result, "<thead><tr>")
+				for _, cell := range cells {
+					result = append(result, `<th style="border:1px solid #d0d5dd;padding:8px 12px;background:#f2f4f7;text-align:left;">`+strings.TrimSpace(cell)+"</th>")
+				}
+				result = append(result, "</tr></thead><tbody>")
+				continue
+			}
+			result = append(result, "<tr>")
+			for _, cell := range cells {
+				result = append(result, `<td style="border:1px solid #d0d5dd;padding:8px 12px;">`+strings.TrimSpace(cell)+"</td>")
+			}
+			result = append(result, "</tr>")
+			continue
+		}
+
+		// Close table if we were in one
+		if inTable {
+			result = append(result, "</tbody></table>")
+			inTable = false
+		}
 
 		// Numbered list
 		if numRE.MatchString(trimmed) {
@@ -1852,6 +1898,9 @@ func mdToHTML(text string) string {
 		}
 	}
 
+	if inTable {
+		result = append(result, "</tbody></table>")
+	}
 	if inOL {
 		result = append(result, "</ol>")
 	}
