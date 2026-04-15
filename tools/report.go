@@ -56,7 +56,7 @@ func (r *Registry) registerReportTools() {
 			Properties: map[string]ToolProperty{
 				"template_id": {
 					Type:        "string",
-					Description: "템플릿 ID. 운전/차량: 'R-3', 진동: 'R-2', 금융: 'R-1', 범용: 'R-0' (기본값)",
+					Description: "템플릿 ID. 운전/차량: 'R-3', 진동: 'R-2', 금융: 'R-1', 범용: 'R-0' (기본값). 매 호출마다 사용자의 현재 요청에 맞는 템플릿을 선택하세요. 이전 호출 값을 재사용하지 마세요.",
 					Enum:        []string{"R-0", "R-1", "R-2", "R-3"},
 				},
 				"table": {
@@ -90,7 +90,15 @@ func (r *Registry) registerReportTools() {
 				},
 				"stock": {
 					Type:        "string",
-					Description: "Finance multi-stock table: stock code to analyze (e.g. AAPL). Used when tags follow AAPL_close pattern.",
+					Description: "사용자가 종목명을 언급하면 반드시 이 파라미터에 저장하세요.",
+				},
+				"time_start": {
+					Type:        "string",
+					Description: "분석 시작 날짜. 날짜 문자열로 입력. epoch 값을 직접 계산하지 마세요.",
+				},
+				"time_end": {
+					Type:        "string",
+					Description: "분석 종료 날짜. 날짜 문자열로 입력. epoch 값을 직접 계산하지 마세요.",
 				},
 			},
 			Required: []string{"table"},
@@ -146,7 +154,8 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 
 	filename := argAnyStr(normalizedArgs, "filename")
 	if filename == "" {
-		filename = tableName + "/" + tableName + "_Analysis_Report.html"
+		ts := time.Now().Format("20060102_150405")
+		filename = tableName + "/" + tableName + "_Analysis_Report_" + ts + ".html"
 	}
 	if !strings.HasSuffix(strings.ToLower(filename), ".html") {
 		filename += ".html"
@@ -171,8 +180,10 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 	if timeEnd == "" {
 		timeEnd = argAnyStr(normalizedArgs, "timeend")
 	}
+	// Normalize: convert date strings to nanoseconds
+	timeStart = dateStrToNano(timeStart)
+	timeEnd = dateStrToNano(timeEnd)
 	if timeStart != "" && timeEnd != "" {
-		// Convert epoch milliseconds (13 digits) to nanoseconds (19 digits) for Machbase
 		tsNano := msToNano(timeStart)
 		teNano := msToNano(timeEnd)
 		timeWhere = fmt.Sprintf(" AND TIME BETWEEN %s AND %s", tsNano, teNano)
@@ -202,11 +213,14 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 
 	// 2. Multi-stock detection (before stats query to filter)
 	stock := argAnyStr(normalizedArgs, "stock")
-	// LLM often sends the stock name via "tag"/"tags" param instead of "stock"
+	// LLM often sends the stock name via "tag"/"tags"/"filter_tag" param instead of "stock"
 	if stock == "" {
 		tagVal := argAnyStr(normalizedArgs, "tag")
 		if tagVal == "" {
 			tagVal = argAnyStr(normalizedArgs, "tags")
+		}
+		if tagVal == "" {
+			tagVal = argAnyStr(normalizedArgs, "filter_tag")
 		}
 		if tagVal != "" {
 			// Strip common suffixes like _close, _open etc. to extract stock name
@@ -226,16 +240,94 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 			}
 		}
 	}
-	autoSelectedStock := ""
+	// Fallback: scan all unknown params and match against actual tag prefixes
+	if stock == "" {
+		knownKeys := map[string]bool{
+			"table": true, "tablename": true, "table_name": true,
+			"template_id": true, "templateid": true,
+			"filename": true, "time_start": true, "timestart": true,
+			"time_end": true, "timeend": true, "rollup_unit": true,
+			"rollupunit": true, "stock": true,
+			"tag": true, "tags": true, "filter_tag": true,
+		}
+		stockPrefixes := extractStockNames(tags)
+		prefixSet := make(map[string]bool, len(stockPrefixes))
+		for _, p := range stockPrefixes {
+			prefixSet[strings.ToUpper(p)] = true
+		}
+		for k, v := range normalizedArgs {
+			if knownKeys[k] {
+				continue
+			}
+			if s, ok := v.(string); ok && s != "" {
+				candidate := strings.TrimSpace(strings.Split(s, ",")[0])
+				// Strip OHLCV suffixes
+				for _, suffix := range []string{"_close", "_open", "_high", "_low", "_volume", "_adj_close"} {
+					if idx := strings.Index(strings.ToLower(candidate), suffix); idx > 0 {
+						candidate = candidate[:idx]
+						break
+					}
+				}
+				upper := strings.ToUpper(candidate)
+				if prefixSet[upper] {
+					stock = upper
+					fmt.Printf("[Report] Fallback: extracted stock '%s' from param '%s'\n", stock, k)
+					break
+				}
+			}
+		}
+	}
+	// Last resort: scan analysis/recommendations text for the most mentioned stock name
+	if stock == "" {
+		allStocks := extractStockNames(tags)
+		if len(allStocks) > 0 {
+			combined := strings.ToUpper(
+				argAnyStr(normalizedArgs, "analysis") + " " + argAnyStr(normalizedArgs, "recommendations"),
+			)
+			if strings.TrimSpace(combined) != "" {
+				bestStock := ""
+				bestCount := 0
+				for _, prefix := range allStocks {
+					p := strings.ToUpper(prefix)
+					if len(p) < 2 {
+						continue // skip single-char tickers (A, C, D...) to avoid false positives
+					}
+					count := 0
+					search := combined
+					for {
+						idx := strings.Index(search, p)
+						if idx < 0 {
+							break
+						}
+						endIdx := idx + len(p)
+						leftOk := idx == 0 || !((search[idx-1] >= 'A' && search[idx-1] <= 'Z') || (search[idx-1] >= '0' && search[idx-1] <= '9'))
+						rightOk := endIdx >= len(search) || !((search[endIdx] >= 'A' && search[endIdx] <= 'Z') || (search[endIdx] >= '0' && search[endIdx] <= '9'))
+						if leftOk && rightOk {
+							count++
+						}
+						search = search[endIdx:]
+					}
+					if count > bestCount {
+						bestCount = count
+						bestStock = p
+					}
+				}
+				if bestStock != "" {
+					stock = bestStock
+					fmt.Printf("[Report] Extracted stock '%s' from analysis/recommendations text (%d mentions)\n", stock, bestCount)
+				}
+			}
+		}
+	}
 	if detectMultiStock(tags) && stock == "" {
 		stocks := extractStockNames(tags)
 		if len(stocks) > 0 {
-			stock = stocks[0]
-			autoSelectedStock = stock
-			if templateID == "R-0" {
-				templateID = "R-1"
+			// Show first 10 stock names as examples
+			examples := stocks
+			if len(examples) > 10 {
+				examples = examples[:10]
 			}
-			fmt.Printf("[Report] Multi-stock detected, auto-selected first stock: %s (template: %s)\n", stock, templateID)
+			return fmt.Sprintf("이 테이블에는 여러 종목이 포함되어 있습니다. stock 파라미터에 분석할 종목을 지정해주세요. (예: %s)", strings.Join(examples, ", ")), nil
 		}
 	}
 
@@ -770,9 +862,6 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 
 	reportURL := r.client.BaseURL + "/db/tql/" + filename
 	result := fmt.Sprintf("Report saved: %s\n[리포트 열기](%s)", filename, reportURL)
-	if autoSelectedStock != "" {
-		result = fmt.Sprintf("종목이 지정되지 않아 첫 번째 종목 '%s'을(를) 자동 선택하여 분석했습니다.\n\n%s", autoSelectedStock, result)
-	}
 	return result, nil
 }
 
@@ -892,6 +981,31 @@ func mergeTrend(closeTrend, volTrend []map[string]interface{}) []map[string]inte
 		result = append(result, item)
 	}
 	return result
+}
+
+// dateStrToNano converts a date string (e.g. "2023-12-19") to nanoseconds string.
+// If the input is already numeric (epoch), it is returned as-is.
+func dateStrToNano(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Already numeric → return as-is (will be handled by msToNano)
+	if s[0] >= '0' && s[0] <= '9' && !strings.Contains(s, "-") {
+		return s
+	}
+	formats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+		"2006/01/02",
+	}
+	for _, layout := range formats {
+		if t, err := time.Parse(layout, s); err == nil {
+			return fmt.Sprintf("%d", t.UnixNano())
+		}
+	}
+	return s
 }
 
 // pickRollupUnit selects ROLLUP time unit based on the time range span.
@@ -1767,8 +1881,12 @@ func mdToHTML(text string) string {
 	text = boldHeadingRE.ReplaceAllString(text, "**$1**\n$2")
 	// Standalone **bold** lines → h4
 	text = regexp.MustCompile(`(?m)^\*\*(.+?)\*\*$`).ReplaceAllString(text, `<h4 style="color:#1a365d;margin:20px 0 8px;font-size:15px;">$1</h4>`)
+	// Inline code: `code` → <code>
+	text = regexp.MustCompile("`([^`]+)`").ReplaceAllString(text, `<code style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:13px;">$1</code>`)
 	// Inline bold
 	text = mdBoldRE.ReplaceAllString(text, "<strong>$1</strong>")
+	// Links: [text](url) → <a>
+	text = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`).ReplaceAllString(text, `<a href="$2" style="color:#2b6cb0;">$1</a>`)
 	text = circledNumRE.ReplaceAllString(text, "\n$1")
 	text = numParenInline.ReplaceAllString(text, "\n$1) ")
 
@@ -1777,15 +1895,63 @@ func mdToHTML(text string) string {
 	inOL := false
 	inUL := false
 	inTable := false
+	inBlockquote := false
 
 	tableRowRE := regexp.MustCompile(`^\|(.+)\|$`)
 	tableSepRE := regexp.MustCompile(`^\|[\s:_-]+(\|[\s:_-]+)*\|$`)
+	hrRE := regexp.MustCompile(`^[-*_]{3,}$`)
 
 	numRE := regexp.MustCompile(`^(\d+[.)]\s+|[①②③④⑤⑥⑦⑧⑨⑩])`)
 	numStripRE := regexp.MustCompile(`^(\d+[.)]\s+|[①②③④⑤⑥⑦⑧⑨⑩]\s*)`)
 
+	// Helper: detect any list item (numbered or bullet, any indent level)
+	isAnyListItem := func(s string) bool {
+		t := strings.TrimSpace(s)
+		return numRE.MatchString(t) || strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* ")
+	}
+
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
+
+		// Horizontal rule
+		if hrRE.MatchString(trimmed) {
+			if inOL {
+				result = append(result, "</ol>")
+				inOL = false
+			}
+			if inUL {
+				result = append(result, "</ul>")
+				inUL = false
+			}
+			if inBlockquote {
+				result = append(result, "</blockquote>")
+				inBlockquote = false
+			}
+			result = append(result, `<hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">`)
+			continue
+		}
+
+		// Blockquote
+		if strings.HasPrefix(trimmed, "> ") {
+			if !inBlockquote {
+				if inOL {
+					result = append(result, "</ol>")
+					inOL = false
+				}
+				if inUL {
+					result = append(result, "</ul>")
+					inUL = false
+				}
+				inBlockquote = true
+				result = append(result, `<blockquote style="border-left:4px solid #2b6cb0;margin:12px 0;padding:8px 16px;color:#4a5568;background:#f7fafc;">`)
+			}
+			result = append(result, "<p>"+trimmed[2:]+"</p>")
+			continue
+		}
+		if inBlockquote {
+			result = append(result, "</blockquote>")
+			inBlockquote = false
+		}
 
 		// Markdown table
 		if tableRowRE.MatchString(trimmed) {
@@ -1809,14 +1975,14 @@ func mdToHTML(text string) string {
 				// First row is header
 				result = append(result, "<thead><tr>")
 				for _, cell := range cells {
-					result = append(result, `<th style="border:1px solid #d0d5dd;padding:8px 12px;background:#f2f4f7;text-align:left;">`+strings.TrimSpace(cell)+"</th>")
+					result = append(result, `<th style="border:1px solid #d0d5dd;padding:8px 12px;background:#ebf4ff;color:#000;text-align:left;">`+strings.TrimSpace(cell)+"</th>")
 				}
 				result = append(result, "</tr></thead><tbody>")
 				continue
 			}
 			result = append(result, "<tr>")
 			for _, cell := range cells {
-				result = append(result, `<td style="border:1px solid #d0d5dd;padding:8px 12px;">`+strings.TrimSpace(cell)+"</td>")
+				result = append(result, `<td style="border:1px solid #d0d5dd;padding:8px 12px;background:#fff;color:#000;">`+strings.TrimSpace(cell)+"</td>")
 			}
 			result = append(result, "</tr>")
 			continue
@@ -1826,6 +1992,15 @@ func mdToHTML(text string) string {
 		if inTable {
 			result = append(result, "</tbody></table>")
 			inTable = false
+		}
+
+		// Sub-bullet (indented - or *): keep inside current list as nested content
+		if (inOL || inUL) && len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+			subTrimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(subTrimmed, "- ") || strings.HasPrefix(subTrimmed, "* ") {
+				result = append(result, `<li style="margin-left:20px;list-style-type:disc;">`+subTrimmed[2:]+"</li>")
+				continue
+			}
 		}
 
 		// Numbered list
@@ -1860,17 +2035,13 @@ func mdToHTML(text string) string {
 
 		// Empty line inside a list: peek ahead — if next non-empty line is also a list item, keep list open
 		if trimmed == "" && (inOL || inUL) {
-			// Look ahead for next non-empty line
 			keepOpen := false
 			for j := i + 1; j < len(lines); j++ {
 				next := strings.TrimSpace(lines[j])
 				if next == "" {
 					continue
 				}
-				if inOL && numRE.MatchString(next) {
-					keepOpen = true
-				}
-				if inUL && (strings.HasPrefix(next, "- ") || strings.HasPrefix(next, "* ")) {
+				if isAnyListItem(lines[j]) {
 					keepOpen = true
 				}
 				break
@@ -1906,6 +2077,9 @@ func mdToHTML(text string) string {
 	}
 	if inUL {
 		result = append(result, "</ul>")
+	}
+	if inBlockquote {
+		result = append(result, "</blockquote>")
 	}
 
 	return strings.Join(result, "\n")
