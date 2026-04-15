@@ -1,0 +1,89 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          BIN=neo-pkg-llm
+          if [ "$GOOS" = "windows" ]; then BIN=neo-pkg-llm.exe; fi
+          go build -trimpath -ldflags "-s -w" -o "$BIN" .
+
+      - name: Package archive
+        id: pkg
+        run: |
+          NAME=neo-pkg-llm-${{ matrix.goos }}-${{ matrix.goarch }}
+          mkdir -p "$NAME"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            mv neo-pkg-llm.exe "$NAME/"
+          else
+            mv neo-pkg-llm "$NAME/"
+          fi
+          [ -f index.html ] && cp index.html "$NAME/"
+          [ -f main.html ] && cp main.html "$NAME/"
+          cp -r scripts "$NAME/"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -r "${NAME}.zip" "$NAME"
+            echo "asset=${NAME}.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar -czf "${NAME}.tar.gz" "$NAME"
+            echo "asset=${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.asset }}
+          path: ${{ steps.pkg.outputs.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
