@@ -130,6 +130,8 @@ func (s *wsServer) readLoop(conn *websocket.Conn) {
 			go s.handleChat(conn, userID, msg.SessionID, msg.Provider, msg.Model, msg.Query)
 		case "stop":
 			s.handleStop(msg.SessionID, userID)
+		case "clear":
+			s.handleClear(conn, msg.SessionID, userID)
 		case "get_models":
 			s.handleGetModels(conn, userID)
 		default:
@@ -225,6 +227,24 @@ func (s *wsServer) handleStop(sessionID, userID string) {
 			"msg":     "답변이 중지되었습니다.",
 		})
 	}
+}
+
+func (s *wsServer) handleClear(conn *websocket.Conn, sessionID, userID string) {
+	if val, ok := s.sessions.Load(sessionID); ok {
+		sess := val.(*wsSession)
+		if sess.userID != userID {
+			return
+		}
+		sess.cancel()
+		s.sessions.Delete(sessionID)
+		logger.Infof("[WSServer] Session cleared: %s (user=%s)", sessionID, userID)
+	}
+
+	writeJSONTo(conn, map[string]any{
+		"type":    "clear",
+		"session": sessionID,
+		"msg":     "세션이 초기화되었습니다.",
+	})
 }
 
 func (s *wsServer) sessionReaper() {
@@ -518,38 +538,22 @@ func emitLegacy(sess *wsSession, sessionID string, events <-chan agent.Event) {
 	inStreamBlock := false
 
 	// Fence parser: detects code blocks and emits with proper contentType
+	// All content (text + code) streams within one continuous block per response segment.
 	parser := &fenceParser{
 		emit: func(contentType, text string) {
 			if text == "" {
 				return
 			}
-			if contentType != "text" {
-				// Code block: close any open stream block, emit as standalone block
-				if inStreamBlock {
-					emit("stream_block_stop", nil)
-					inStreamBlock = false
-				}
+			if !inStreamBlock {
 				emit("stream_block_start", nil)
-				emit("stream_block_delta", &legacyBodyUnion{
-					OfStreamBlockDelta: &legacyStreamBlockDelta{
-						ContentType: contentType,
-						Text:        text,
-					},
-				})
-				emit("stream_block_stop", nil)
-			} else {
-				// Text: stream as delta within open block
-				if !inStreamBlock {
-					emit("stream_block_start", nil)
-					inStreamBlock = true
-				}
-				emit("stream_block_delta", &legacyBodyUnion{
-					OfStreamBlockDelta: &legacyStreamBlockDelta{
-						ContentType: "text",
-						Text:        text,
-					},
-				})
+				inStreamBlock = true
 			}
+			emit("stream_block_delta", &legacyBodyUnion{
+				OfStreamBlockDelta: &legacyStreamBlockDelta{
+					ContentType: contentType,
+					Text:        text,
+				},
+			})
 		},
 	}
 
