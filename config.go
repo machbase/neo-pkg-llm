@@ -263,6 +263,57 @@ func (c *Config) currentModels() []ModelEntry {
 	return nil
 }
 
+// --- Sensitive field masking ---
+
+// maskSecret masks a secret string, showing first 4 and last 4 chars.
+// e.g. "sk-ant-api03-abcdef...xyz123" → "sk-a********z123"
+func maskSecret(s string) string {
+	if len(s) <= 8 {
+		return "********"
+	}
+	return s[:4] + "********" + s[len(s)-4:]
+}
+
+// MaskedCopy returns a copy of the config with sensitive fields masked.
+func (c *Config) MaskedCopy() Config {
+	copy := *c
+	if copy.Machbase.Password != "" {
+		copy.Machbase.Password = maskSecret(copy.Machbase.Password)
+	}
+	if copy.Claude.APIKey != "" {
+		copy.Claude.APIKey = maskSecret(copy.Claude.APIKey)
+	}
+	if copy.ChatGPT.APIKey != "" {
+		copy.ChatGPT.APIKey = maskSecret(copy.ChatGPT.APIKey)
+	}
+	if copy.Gemini.APIKey != "" {
+		copy.Gemini.APIKey = maskSecret(copy.Gemini.APIKey)
+	}
+	return copy
+}
+
+// isMasked returns true if the value looks like a masked secret.
+func isMasked(s string) bool {
+	return strings.Contains(s, "********")
+}
+
+// RestoreSecrets replaces masked values in the incoming config with
+// the original values from the existing config.
+func (c *Config) RestoreSecrets(existing *Config) {
+	if isMasked(c.Machbase.Password) {
+		c.Machbase.Password = existing.Machbase.Password
+	}
+	if isMasked(c.Claude.APIKey) {
+		c.Claude.APIKey = existing.Claude.APIKey
+	}
+	if isMasked(c.ChatGPT.APIKey) {
+		c.ChatGPT.APIKey = existing.ChatGPT.APIKey
+	}
+	if isMasked(c.Gemini.APIKey) {
+		c.Gemini.APIKey = existing.Gemini.APIKey
+	}
+}
+
 // --- .env loader (unchanged) ---
 
 func loadDotEnv(path string) {

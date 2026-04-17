@@ -254,22 +254,30 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 			}
 			var cfg Config
 			json.Unmarshal(raw, &cfg)
+			masked := cfg.MaskedCopy()
 			writeConfigsResp(w, http.StatusOK, true, "success", time.Since(start), map[string]any{
-				"config":  cfg,
+				"config":  masked,
 				"running": m.getInstance(name) != nil,
 			})
 
 		case http.MethodPut:
 			savePath := filepath.Join(dir, name+".json")
-			if _, err := os.Stat(savePath); err != nil {
+			existingRaw, err := os.ReadFile(savePath)
+			if err != nil {
 				writeConfigsResp(w, http.StatusNotFound, false, "not found", time.Since(start), nil)
 				return
 			}
+			var existing Config
+			json.Unmarshal(existingRaw, &existing)
+
 			var body Config
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				writeConfigsResp(w, http.StatusBadRequest, false, "invalid JSON: "+err.Error(), time.Since(start), nil)
 				return
 			}
+			// Restore masked secrets from existing config
+			body.RestoreSecrets(&existing)
+
 			if reason := validateConfig(&body); reason != "" {
 				writeConfigsResp(w, http.StatusBadRequest, false, reason, time.Since(start), nil)
 				return
