@@ -90,7 +90,7 @@ func (r *Registry) registerReportTools() {
 				},
 				"stock": {
 					Type:        "string",
-					Description: "사용자가 종목명을 언급하면 반드시 이 파라미터에 저장하세요.",
+					Description: "사용자가 종목명을 언급하면 반드시 이 파라미터에 저장하세요, stock 값을 접두어로 가진 태그를 조회",
 				},
 				"time_start": {
 					Type:        "string",
@@ -192,6 +192,35 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 	timeWhereBase := ""
 	if timeWhere != "" {
 		timeWhereBase = " WHERE" + timeWhere[4:] // strip leading " AND"
+	}
+
+	// --- Fallback: if no data in requested time range, shift to MAX(TIME) ---
+	if timeWhere != "" {
+		checkSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", tableName, timeWhereBase)
+		countCSV, cerr := r.client.QuerySQL(checkSQL, "", "", "csv")
+		if cerr == nil && parseCountCSV(countCSV) == 0 {
+			maxSQL := fmt.Sprintf("SELECT MAX(TIME) FROM %s", tableName)
+			maxCSV, merr := r.client.QuerySQL(maxSQL, "", "", "csv")
+			if merr == nil {
+				maxNano := parseMaxTimeCSV(maxCSV)
+				if maxNano > 0 {
+					var tsMs, teMs int64
+					fmt.Sscanf(timeStart, "%d", &tsMs)
+					fmt.Sscanf(timeEnd, "%d", &teMs)
+					durationMs := teMs - tsMs
+					newEndMs := maxNano / 1000000
+					newStartMs := newEndMs - durationMs
+
+					timeStart = fmt.Sprintf("%d", newStartMs)
+					timeEnd = fmt.Sprintf("%d", newEndMs)
+					newTsNano := fmt.Sprintf("%d", newStartMs*1000000)
+					newTeNano := fmt.Sprintf("%d", newEndMs*1000000)
+					timeWhere = fmt.Sprintf(" AND TIME BETWEEN %s AND %s", newTsNano, newTeNano)
+					timeWhereBase = " WHERE" + timeWhere[4:]
+					fmt.Printf("[Report] No data in requested range, adjusted to data max: %s ~ %s\n", newTsNano, newTeNano)
+				}
+			}
+		}
 	}
 
 	// --- Server-side SQL queries ---
@@ -863,6 +892,30 @@ func (r *Registry) saveHtmlReport(args map[string]any) (string, error) {
 	reportURL := r.client.BaseURL + "/db/tql/" + filename
 	result := fmt.Sprintf("Report saved: %s\n[리포트 열기](%s)", filename, reportURL)
 	return result, nil
+}
+
+// parseCountCSV extracts the integer from a "COUNT(*)\n123\n" CSV result.
+func parseCountCSV(csvData string) int64 {
+	reader := csv.NewReader(strings.NewReader(csvData))
+	records, _ := reader.ReadAll()
+	if len(records) < 2 || len(records[1]) < 1 {
+		return -1
+	}
+	var v int64
+	fmt.Sscanf(strings.TrimSpace(records[1][0]), "%d", &v)
+	return v
+}
+
+// parseMaxTimeCSV extracts the nanosecond timestamp from a "MAX(TIME)\n...\n" CSV result.
+func parseMaxTimeCSV(csvData string) int64 {
+	reader := csv.NewReader(strings.NewReader(csvData))
+	records, _ := reader.ReadAll()
+	if len(records) < 2 || len(records[1]) < 1 {
+		return 0
+	}
+	var v int64
+	fmt.Sscanf(strings.TrimSpace(records[1][0]), "%d", &v)
+	return v
 }
 
 // --- CSV parsing helpers ---

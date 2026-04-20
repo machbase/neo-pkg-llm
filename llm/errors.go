@@ -14,6 +14,9 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	msg := friendlyMessage(e.Provider, e.StatusCode)
+	if e.RawBody != "" {
+		fmt.Printf("[%s] API error body: %s\n", e.Provider, e.RawBody)
+	}
 	return fmt.Sprintf("[%s] %s (HTTP %d)", e.Provider, msg, e.StatusCode)
 }
 
