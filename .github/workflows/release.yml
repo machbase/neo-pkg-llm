@@ -57,6 +57,7 @@ jobs:
           [ -f index.html ] && cp index.html "$NAME/"
           [ -f main.html ] && cp main.html "$NAME/"
           cp -r scripts "$NAME/"
+          [ -d neo ] && cp -r neo "$NAME/"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             zip -r "${NAME}.zip" "$NAME"
             echo "asset=${NAME}.zip" >> "$GITHUB_OUTPUT"
