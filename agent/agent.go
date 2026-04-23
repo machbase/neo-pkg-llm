@@ -891,6 +891,13 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 			}
 		}
 
+		// save_html_report: inject parsed time range from agent (LLM cannot know current time)
+		if name == "save_html_report" && a.timeStartDt != "" {
+			args["time_start"] = a.timeStartDt
+			args["time_end"] = a.timeEndDt
+			fmt.Printf("  [fix] save_html_report time injected: %s ~ %s\n", a.timeStartDt, a.timeEndDt)
+		}
+
 		// time_start/time_end: float (scientific notation) → integer string
 		for _, tk := range []string{"time_start", "time_end"} {
 			if v, ok := args[tk]; ok {

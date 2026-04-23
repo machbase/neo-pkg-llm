@@ -356,6 +356,15 @@ func (c *GeminiClient) ensureCache(system string, tools []geminiTool, toolsKey s
 	return nil
 }
 
+// clearCache removes the in-memory cache entry so the next request falls back to non-cached mode.
+func (c *GeminiClient) clearCache() {
+	geminiCacheMu.Lock()
+	defer geminiCacheMu.Unlock()
+	if entry, ok := geminiCacheStore[c.Model]; ok {
+		c.deleteCacheLocked(entry.name)
+	}
+}
+
 // deleteCacheLocked removes a cached content resource. Must be called with geminiCacheMu held.
 func (c *GeminiClient) deleteCacheLocked(name string) {
 	if name == "" {
@@ -408,6 +417,12 @@ func (c *GeminiClient) Chat(ctx context.Context, messages []Message, toolDefs []
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
+		// If cached content expired, clear cache and retry without it
+		if reqBody.CachedContent != "" {
+			fmt.Printf("[Gemini] cached content may have expired, retrying without cache\n")
+			c.clearCache()
+			return c.Chat(ctx, messages, toolDefs)
+		}
 		return nil, newAPIError("Gemini", resp.StatusCode, string(errBody))
 	}
 
@@ -466,6 +481,12 @@ func (c *GeminiClient) ChatStream(ctx context.Context, messages []Message, toolD
 
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(resp.Body)
+		// If cached content expired, clear cache and retry without it
+		if reqBody.CachedContent != "" {
+			fmt.Printf("[Gemini] cached content may have expired, retrying without cache\n")
+			c.clearCache()
+			return c.ChatStream(ctx, messages, toolDefs, cb)
+		}
 		return nil, newAPIError("Gemini", resp.StatusCode, string(errBody))
 	}
 
