@@ -8,7 +8,7 @@ func (r *Registry) registerUtilTools() {
 		Description: "Get version information of the Machbase Neo server.",
 		Parameters:  ToolParameters{Type: "object", Properties: map[string]ToolProperty{}},
 		Fn: func(args map[string]any) (string, error) {
-			return fmt.Sprintf("Agentic Loop Go Backend v1.0.0 / Machbase Neo at %s", r.client.BaseURL), nil
+			return fmt.Sprintf("Agentic Loop Go Backend v1.0.1 / Machbase Neo at %s", r.client.BaseURL), nil
 		},
 	})
 
