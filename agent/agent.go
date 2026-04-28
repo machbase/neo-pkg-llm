@@ -772,7 +772,9 @@ func (a *Agent) HasHistory() bool {
 // ContinueMessages appends a new user query to existing conversation history.
 // For Ollama, resets to [system + new query] with a short analysis hint.
 func (a *Agent) ContinueMessages(query string) {
-	// 이전 턴의 시간 범위 값 리셋
+	// 이전 턴의 모드 및 시간 범위 값 리셋
+	a.reportMode = false
+	a.advanced = false
 	a.timeStartDt = ""
 	a.timeEndDt = ""
 	a.dataMinDt = ""
@@ -784,12 +786,25 @@ func (a *Agent) ContinueMessages(query string) {
 		a.timeEndDt = tr.endDt
 	}
 
+	// 리포트 유형 힌트 생성 (Ollama / non-Ollama 공통)
+	templateHint := ""
+	if isReportQuery(query) {
+		queryLower := strings.ToLower(query)
+		if containsAny(queryLower, []string{"금융", "주식", "종목", "주가", "환율", "원자재", "finance", "stock"}) {
+			templateHint = " template_id='R-1'로 지정하세요."
+		} else if containsAny(queryLower, []string{"진동", "vibration", "베어링", "bearing"}) {
+			templateHint = " template_id='R-2'로 지정하세요."
+		} else if containsAny(queryLower, []string{"운전", "운행", "주행", "차량", "driving", "드라이빙"}) {
+			templateHint = " template_id='R-3'로 지정하세요."
+		}
+	}
+
 	if _, ok := a.llm.(*llm.OllamaClient); ok {
 		userContent := query
 		if isReportQuery(query) {
 			a.reportMode = true
 			a.advanced = false
-			userContent += "\n\n[사전 쿼리 없이 save_html_report(table=테이블명)을 바로 호출하세요.]"
+			userContent += "\n\n[사전 쿼리 없이 save_html_report(table=테이블명)을 바로 호출하세요." + templateHint + "]"
 		} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
 			if isAdvancedQuery(query) {
 				a.advanced = true
@@ -804,9 +819,33 @@ func (a *Agent) ContinueMessages(query string) {
 		}
 		a.messages = []llm.Message{a.messages[0], {Role: "user", Content: userContent}}
 	} else {
+		userContent := query
+		timeHint := "반드시 SELECT MIN(TIME), MAX(TIME) FROM 테이블 (timeformat='ms')로 시간 범위를 먼저 조회하고, " +
+			"그 결과를 time_start/time_end에 문자열로 전달하세요. now-1h 등 상대값 사용 금지!"
+		if tr := parseTimeRange(query); tr != nil {
+			timeHint = fmt.Sprintf("시간 범위가 지정되었습니다. time_start=%s, time_end=%s (%s). 이 값을 그대로 사용하세요.", tr.startMs, tr.endMs, tr.label)
+		}
+		if isReportQuery(query) {
+			a.reportMode = true
+			a.advanced = false
+			userContent += "\n\n[시스템 힌트: HTML 분석 리포트 요청입니다. " +
+				"사전 쿼리(execute_sql_query, list_table_tags) 없이 save_html_report(table=테이블명)을 바로 호출하세요." +
+				templateHint + " " +
+				"통계/태그/시간범위는 도구가 내부에서 처리합니다. " +
+				"create_dashboard_with_charts, create_dashboard, add_chart_to_dashboard, save_tql_file, create_folder 사용 절대 금지! " +
+				"오직 save_html_report만 사용하세요. " + timeHint + "]"
+		} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
+			a.advanced = isAdvancedQuery(query)
+			if a.advanced {
+				userContent += "\n\n[시스템 힌트: 고급 분석 키워드가 감지되었습니다. 고급 분석(TQL 템플릿) 절차를 따르세요. " + timeHint + "]"
+			} else {
+				userContent += "\n\n[시스템 힌트: 기본 분석 요청입니다. 반드시 기본 분석(table-based 차트, create_dashboard_with_charts) 절차를 따르세요. " +
+					"TQL 파일/템플릿/save_tql_file/create_folder를 절대 사용하지 마세요. " + timeHint + "]"
+			}
+		}
 		a.messages = append(a.messages, llm.Message{
 			Role:    "user",
-			Content: query,
+			Content: userContent,
 		})
 	}
 }
@@ -887,6 +926,31 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 				if inferred := a.inferTableName(); inferred != "" {
 					args["table_name"] = inferred
 					fmt.Printf("  [fix] list_table_tags table_name 자동 삽입: %s\n", inferred)
+				}
+			}
+		}
+
+		// save_tql_file: tql_content가 비어있으면 filename에서 템플릿 ID를 추출하여 TEMPLATE 참조 생성
+		if name == "save_tql_file" {
+			tqlContent, _ := args["tql_content"].(string)
+			if strings.TrimSpace(tqlContent) == "" {
+				fn, _ := args["filename"].(string)
+				if idMatch := templateIDRE.FindString(fn); idMatch != "" {
+					idMatch = strings.ReplaceAll(idMatch, "_", "-")
+					table := a.inferTableName()
+					if table == "" {
+						table = strings.Split(fn, "/")[0]
+					}
+					tag := ""
+					if len(a.knownTags) > 0 {
+						tag = a.knownTags[0]
+					}
+					ref := fmt.Sprintf("TEMPLATE:%s TABLE:%s", idMatch, table)
+					if tag != "" {
+						ref += " TAG:" + tag
+					}
+					args["tql_content"] = ref
+					fmt.Printf("  [fix] save_tql_file tql_content was empty → auto-generated: %s\n", ref)
 				}
 			}
 		}
@@ -982,6 +1046,18 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 		// Dashboard filename/title auto-fix for all dashboard tools
 		if dashboardTools[name] {
 			fn, _ := args["filename"].(string)
+
+			// filename이 비어있으면 테이블명 + 타임스탬프로 자동 생성
+			if fn == "" && (name == "create_dashboard" || name == "create_dashboard_with_charts") {
+				table := a.inferTableName()
+				if table == "" {
+					table = "DATA"
+				}
+				ts := time.Now().Format("20060102_150405")
+				fn = table + "/" + table + "_Dashboard_" + ts + ".dsh"
+				fmt.Printf("  [fix] Dashboard filename auto-generated: %s\n", fn)
+			}
+
 			if fn != "" {
 				// Auto-append .dsh extension
 				if !strings.HasSuffix(strings.ToLower(fn), ".dsh") {
@@ -989,11 +1065,20 @@ func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
 				}
 				// If no folder, infer from filename or table context
 				if !strings.Contains(fn, "/") {
-					// e.g. "BITCOIN_analysis.dsh" → "BITCOIN/BITCOIN_analysis.dsh"
+					table := a.inferTableName()
+					if table == "" {
+						// e.g. "BITCOIN_analysis.dsh" → "BITCOIN/BITCOIN_analysis.dsh"
+						base := strings.TrimSuffix(fn, ".dsh")
+						parts := strings.SplitN(base, "_", 2)
+						table = strings.ToUpper(parts[0])
+					}
+					fn = table + "/" + fn
+				}
+				// 타임스탬프가 없으면 추가 (리포트와 동일 패턴)
+				if !timestampInFilename(fn) {
+					ts := time.Now().Format("20060102_150405")
 					base := strings.TrimSuffix(fn, ".dsh")
-					parts := strings.SplitN(base, "_", 2)
-					folder := strings.ToUpper(parts[0])
-					fn = folder + "/" + fn
+					fn = base + "_" + ts + ".dsh"
 				}
 				args["filename"] = fn
 				fmt.Printf("  [fix] Dashboard filename → %s\n", fn)
@@ -1293,12 +1378,20 @@ func (a *Agent) guardReportOmission(ctx context.Context, msg llm.Message) llm.Me
 		return msg
 	}
 
-	// Check if save_html_report was ever called (success or fail)
-	allMsgs := append(a.messages, msg)
-	for _, m := range allMsgs {
+	// Check if save_html_report was called in the CURRENT turn only
+	// (messages after the last user message, not the entire conversation)
+	turnStart := 0
+	for i := len(a.messages) - 1; i >= 0; i-- {
+		if a.messages[i].Role == "user" {
+			turnStart = i + 1
+			break
+		}
+	}
+	currentTurnMsgs := append(a.messages[turnStart:], msg)
+	for _, m := range currentTurnMsgs {
 		for _, tc := range m.ToolCalls {
 			if tc.Function.Name == "save_html_report" {
-				return msg // already attempted
+				return msg // already attempted in this turn
 			}
 		}
 		// Also check tool results mentioning report
@@ -1575,6 +1668,13 @@ func (a *Agent) validateTagInArgs(toolName string, args map[string]any) string {
 	)
 }
 
+// timestampInFilename checks if a filename already contains a YYYYMMDD_HHMMSS timestamp.
+var timestampRE = regexp.MustCompile(`\d{8}_\d{6}`)
+
+func timestampInFilename(fn string) bool {
+	return timestampRE.MatchString(fn)
+}
+
 func isAllDigits(s string) bool {
 	for _, c := range s {
 		if c < '0' || c > '9' {
@@ -1590,7 +1690,7 @@ func isAllDigits(s string) bool {
 // dashboard title fix, etc.) always finds the expected key.
 var aliasMap = map[string]map[string]string{
 	"save_tql_file": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename", "tql_path": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename", "tql_path": "filename",
 		"script": "tql_content", "content": "tql_content", "code": "tql_content", "tql_script": "tql_content", "tql": "tql_content",
 	},
 	"execute_tql_script": {
@@ -1618,43 +1718,43 @@ var aliasMap = map[string]map[string]string{
 		"name": "folder_name", "path": "folder_name",
 	},
 	"delete_file": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 	},
 	"create_dashboard": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 	},
 	"create_dashboard_with_charts": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 	},
 	"add_chart_to_dashboard": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 		"title": "chart_title", "type": "chart_type", "tql": "tql_path",
 	},
 	"remove_chart_from_dashboard": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 		"chart_id": "panel_id", "id": "panel_id",
 		"chart_title": "panel_title", "title": "panel_title", "chart_name": "panel_title",
 	},
 	"update_chart_in_dashboard": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"chart_id": "panel_id", "id": "panel_id",
 		"chart_title": "panel_title", "title": "panel_title", "chart_name": "panel_title",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 	},
 	"get_dashboard": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 	},
 	"preview_dashboard": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 	},
 	"delete_dashboard": {
-		"path": "filename", "file_path": "filename", "name": "filename", "file_name": "filename",
+		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
 		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
 	},
 }
