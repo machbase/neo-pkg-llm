@@ -110,6 +110,22 @@ func (r *Registry) ToolNames() []string {
 	return r.order
 }
 
+// Subset creates a new Registry containing only the specified tools.
+// The new registry shares the same machbase client.
+func (r *Registry) Subset(names []string) *Registry {
+	sub := &Registry{
+		tools:  make(map[string]*Tool),
+		client: r.client,
+	}
+	for _, name := range names {
+		if t, ok := r.tools[name]; ok {
+			sub.tools[name] = t
+			sub.order = append(sub.order, name)
+		}
+	}
+	return sub
+}
+
 func (r *Registry) registerAll() {
 	r.registerSQLTools()
 	r.registerTQLTools()

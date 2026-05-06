@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"neo-pkg-llm/config"
 	"neo-pkg-llm/logger"
 )
 
@@ -50,22 +51,22 @@ func (m *Manager) LoadAll() {
 	}
 }
 
-func (m *Manager) loadConfigFile(name string) (*Config, error) {
+func (m *Manager) loadConfigFile(name string) (*config.Config, error) {
 	path := filepath.Join(m.configsDir, name+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var cfg Config
+	var cfg config.Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	cfg.configPath = path
-	cfg.applyEnvOverrides()
+	cfg.ConfigPath = path
+	cfg.ApplyEnvOverrides()
 	return &cfg, nil
 }
 
-func (m *Manager) startInstance(name string, cfg *Config) error {
+func (m *Manager) startInstance(name string, cfg *config.Config) error {
 	inst, err := NewInstance(name, cfg)
 	if err != nil {
 		return err
@@ -175,12 +176,12 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 		start := time.Now()
 		switch r.Method {
 		case http.MethodPost:
-			var body Config
+			var body config.Config
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				writeConfigsResp(w, http.StatusBadRequest, false, "invalid JSON: "+err.Error(), time.Since(start), nil)
 				return
 			}
-			if reason := validateConfig(&body); reason != "" {
+			if reason := config.ValidateConfig(&body); reason != "" {
 				writeConfigsResp(w, http.StatusBadRequest, false, reason, time.Since(start), nil)
 				return
 			}
@@ -202,8 +203,8 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 
 			// Stop existing instance, then start new one
 			m.stopInstance(userName)
-			body.configPath = savePath
-			body.applyEnvOverrides()
+			body.ConfigPath = savePath
+			body.ApplyEnvOverrides()
 			if err := m.startInstance(userName, &body); err != nil {
 				logger.Infof("[Manager] Instance start failed for %s: %v", userName, err)
 				writeConfigsResp(w, http.StatusOK, true, "config saved but instance failed: "+err.Error(), time.Since(start), map[string]string{"name": userName})
@@ -252,7 +253,7 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 				writeConfigsResp(w, http.StatusNotFound, false, "not found", time.Since(start), nil)
 				return
 			}
-			var cfg Config
+			var cfg config.Config
 			json.Unmarshal(raw, &cfg)
 			masked := cfg.MaskedCopy()
 			writeConfigsResp(w, http.StatusOK, true, "success", time.Since(start), map[string]any{
@@ -267,10 +268,10 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 				writeConfigsResp(w, http.StatusNotFound, false, "not found", time.Since(start), nil)
 				return
 			}
-			var existing Config
+			var existing config.Config
 			json.Unmarshal(existingRaw, &existing)
 
-			var body Config
+			var body config.Config
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				writeConfigsResp(w, http.StatusBadRequest, false, "invalid JSON: "+err.Error(), time.Since(start), nil)
 				return
@@ -278,7 +279,7 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 			// Restore masked secrets from existing config
 			body.RestoreSecrets(&existing)
 
-			if reason := validateConfig(&body); reason != "" {
+			if reason := config.ValidateConfig(&body); reason != "" {
 				writeConfigsResp(w, http.StatusBadRequest, false, reason, time.Since(start), nil)
 				return
 			}
@@ -297,8 +298,8 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 			}
 
 			// Start with updated config
-			body.configPath = newPath
-			body.applyEnvOverrides()
+			body.ConfigPath = newPath
+			body.ApplyEnvOverrides()
 			if err := m.startInstance(newName, &body); err != nil {
 				logger.Infof("[Manager] Instance restart failed for %s: %v", newName, err)
 				writeConfigsResp(w, http.StatusOK, true, "config saved but instance failed: "+err.Error(), time.Since(start), map[string]string{"name": newName})
@@ -323,19 +324,4 @@ func (m *Manager) registerConfigsHandlers(mux *http.ServeMux) {
 			writeConfigsResp(w, http.StatusMethodNotAllowed, false, "GET, PUT or DELETE required", time.Since(start), nil)
 		}
 	})
-}
-
-// validateConfig checks required fields.
-func validateConfig(c *Config) string {
-	switch {
-	case c.Machbase.Host == "":
-		return "machbase.host is required"
-	case c.Machbase.Port == "":
-		return "machbase.port is required"
-	case c.Machbase.User == "":
-		return "machbase.user is required"
-	case c.Machbase.Password == "":
-		return "machbase.password is required"
-	}
-	return ""
 }

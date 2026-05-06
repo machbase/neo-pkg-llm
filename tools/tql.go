@@ -76,7 +76,7 @@ func (r *Registry) registerTQLTools() {
 			Required: []string{"filename", "tql_content"},
 		},
 		Fn: func(args map[string]any) (string, error) {
-			filename := argStrAny(args, "", "filename", "path", "file_path", "filepath", "name")
+			filename := argStrAny(args, "", "filename", "path", "file_path", "name")
 			tqlContent := argStrAny(args, "", "tql_content", "script", "content", "code")
 			if filename == "" || tqlContent == "" {
 				return "", fmt.Errorf("filename and tql_content are required")

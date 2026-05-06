@@ -2,14 +2,14 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
+	promptctx "neo-pkg-llm/context"
+	"neo-pkg-llm/fixer"
+	"neo-pkg-llm/guard"
 	"neo-pkg-llm/llm"
+	"neo-pkg-llm/skill"
 	"neo-pkg-llm/tools"
 )
 
@@ -33,76 +33,172 @@ type Event struct {
 	Content string         `json:"content,omitempty"`
 }
 
-// Template constants (mirroring Python graph.py)
-var (
-	templateExpected = map[string]int{"1": 6, "2": 7, "3": 4}
-
-	templateAllIDs = map[string][]string{
-		"1": {"1-1", "1-2", "1-3", "1-4", "1-5", "1-6"},
-		"2": {"2-1", "2-2", "2-3", "2-4", "2-5", "2-6", "2-7"},
-		"3": {"3-1", "3-2", "3-3", "3-4"},
-	}
-
-	templateNames = map[string]string{
-		"1-1": "평균 추세", "1-2": "변동성", "1-3": "가격 밴드",
-		"1-4": "태그 비교", "1-5": "거래량 추세", "1-6": "로그 가격",
-		"2-1": "RMS 진동", "2-2": "FFT 스펙트럼", "2-3": "피크 엔벨로프",
-		"2-4": "Peak-to-Peak", "2-5": "Crest Factor", "2-6": "데이터 밀도", "2-7": "3D 스펙트럼",
-		"3-1": "롤업 평균", "3-2": "태그 비교", "3-3": "카운트 추세", "3-4": "MIN/MAX 엔벨로프",
-	}
-
-	dashboardTools = map[string]bool{
-		"create_dashboard":             true,
-		"create_dashboard_with_charts": true,
-		"add_chart_to_dashboard":       true,
-		"remove_chart_from_dashboard":  true,
-		"update_chart_in_dashboard":    true,
-		"delete_dashboard":             true,
-		"update_dashboard_time_range":  true,
-		"preview_dashboard":            true,
-		"get_dashboard":                true,
-		"save_html_report":             true,
-	}
-
-	tqlFuncRE     = regexp.MustCompile(`\)[ \t]*(SQL_SELECT|SQL|SCRIPT|CHART_LINE|CHART_BAR3D|CHART|MAPVALUE|POPVALUE|MAPKEY|GROUPBYKEY|FFT|FLATTEN|PUSHKEY|CSV)\(`)
-	templateRefRE = regexp.MustCompile(`TEMPLATE:\s*(\d+-\d+)\s+TABLE:\s*(\S+)(?:\s+TAG:\s*(\S+))?(?:\s+UNIT:\s*(\S+))?(?:\s+TAG1:\s*(\S+))?(?:\s+TAG2:\s*(\S+))?`)
-	templateIDRE  = regexp.MustCompile(`(\d+[-_]\d+)`)
-)
-
 // Agent orchestrates the LLM ↔ tools loop.
 type Agent struct {
-	llm       llm.LLMProvider
-	registry  *tools.Registry
-	messages  []llm.Message
-	maxSteps  int
-	advanced    bool     // true = 고급 분석 (TQL templates), false = 기본 분석 (table-based)
-	reportMode  bool     // true = HTML 리포트 생성 모드
-	knownTags   []string // list_table_tags 결과를 저장하여 TAG 검증에 사용
-	timeStartDt string   // 시간 범위 시작 (datetime 문자열, 템플릿 {TIME_START} 치환용)
-	timeEndDt   string   // 시간 범위 종료 (datetime 문자열, 템플릿 {TIME_END} 치환용)
-	dataMinDt   string   // 데이터 실제 MIN(TIME) (execute_sql_query에서 캡처)
-	dataMaxDt   string   // 데이터 실제 MAX(TIME) (execute_sql_query에서 캡처)
+	llm           llm.LLMProvider
+	registry      *tools.Registry
+	messages      []llm.Message
+	maxSteps      int
+	advanced      bool // true = 고급 분석 (TQL templates), false = 기본 분석 (table-based)
+	reportMode    bool // true = HTML 리포트 생성 모드
+	useSubAgents  bool // true = 서브에이전트 모드 활성화
+	skillName     string
+	toolDefs      []map[string]any // filtered tool definitions for LLM
+	docCatalog    string           // cached document catalog (loaded once, reused across turns)
+	fixerCtx      *fixer.FixerContext
+	guardPipeline *guard.Pipeline
 }
 
-func NewAgent(llmClient llm.LLMProvider, registry *tools.Registry) *Agent {
-	return &Agent{
-		llm:      llmClient,
-		registry: registry,
-		maxSteps: 60,
+// --- guard.AgentState interface ---
+
+// getToolDefs returns the filtered tool definitions (skill-based) or all tools as fallback.
+func (a *Agent) getToolDefs() []map[string]any {
+	if a.toolDefs != nil {
+		return a.toolDefs
 	}
+	return a.registry.AllToolDefs()
+}
+
+func (a *Agent) Messages() []llm.Message       { return a.messages }
+func (a *Agent) IsAdvanced() bool               { return a.advanced }
+func (a *Agent) IsReport() bool                 { return a.reportMode }
+func (a *Agent) LLM() llm.LLMProvider           { return a.llm }
+func (a *Agent) Registry() *tools.Registry       { return a.registry }
+
+// NewAgent creates an agent. Set useSubAgents=true to enable sub-agent delegation for advanced/report tasks.
+func NewAgent(llmClient llm.LLMProvider, registry *tools.Registry) *Agent {
+	return NewAgentWithOptions(llmClient, registry, false)
+}
+
+// NewAgentWithSubAgents creates an agent with sub-agent delegation enabled.
+func NewAgentWithSubAgents(llmClient llm.LLMProvider, registry *tools.Registry) *Agent {
+	return NewAgentWithOptions(llmClient, registry, true)
+}
+
+func NewAgentWithOptions(llmClient llm.LLMProvider, registry *tools.Registry, useSubAgents bool) *Agent {
+	a := &Agent{
+		llm:          llmClient,
+		registry:     registry,
+		maxSteps:     60,
+		useSubAgents: useSubAgents,
+		fixerCtx:     &fixer.FixerContext{},
+	}
+
+	// Wire up fixer's template expansion callback
+	fixer.ExpandTemplateFunc = ExpandTemplate
+
+	// Wire up fixer's table name inference callback
+	a.fixerCtx.InferTableName = func() string {
+		return fixer.InferTableName(a.messages)
+	}
+
+	// Build guard pipeline
+	a.guardPipeline = guard.NewPipeline(
+		[]guard.Guard{
+			&guard.DashboardEarlyGuard{},
+			&guard.ConsecutiveFailureGuard{},
+		},
+		[]guard.Guard{
+			&guard.ChartOmissionGuard{},
+			&guard.ReportOmissionGuard{},
+		},
+	)
+
+	// Wire up guard callbacks
+	guard.FixToolCalls = func(msg llm.Message) llm.Message {
+		return fixer.Fix(msg, a.fixerCtx)
+	}
+	guard.AppendMessages = func(msgs ...llm.Message) {
+		a.messages = append(a.messages, msgs...)
+	}
+
+	return a
+}
+
+// detectTables checks the user query against known table names from list_tables.
+// Returns matched table names (uppercase). Only useful when 2+ tables are found.
+func detectTables(query string, registry *tools.Registry) []string {
+	tableList, err := registry.ExecuteMap("list_tables", nil)
+	if err != nil || tableList == "" {
+		return nil
+	}
+
+	upper := strings.ToUpper(query)
+	var matched []string
+	for _, line := range strings.Split(tableList, "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || name == "NAME" {
+			continue
+		}
+		if strings.Contains(upper, name) {
+			matched = append(matched, name)
+		}
+	}
+	return matched
+}
+
+// compactHistory removes tool_calls and tool results from previous turns,
+// keeping only system, user, and final assistant messages.
+func compactHistory(messages []llm.Message) []llm.Message {
+	var result []llm.Message
+	for _, msg := range messages {
+		if msg.Role == "tool" {
+			continue
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			continue
+		}
+		result = append(result, msg)
+	}
+	return result
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + fmt.Sprintf("... (총 %d자)", len(s))
 }
 
 // Run executes the agent loop and returns the final text response.
 func (a *Agent) Run(ctx context.Context, query string) (string, error) {
-	if a.HasHistory() {
-		a.ContinueMessages(query)
-	} else {
+	isFirstTurn := !a.HasHistory()
+	if isFirstTurn {
 		a.initMessages(query)
+	} else {
+		a.ContinueMessages(query)
 	}
 	LoadTemplates()
 
-	fmt.Printf("\n[Agent] 쿼리: %s\n", query)
-	fmt.Println("[Agent] Agentic Loop 시작...")
+	// Sub-agent parallel delegation: only when 2+ tables detected
+	if a.useSubAgents && isFirstTurn {
+		tables := detectTables(query, a.registry)
+		if len(tables) >= 2 {
+			buildPrompt := func(groups ...string) string {
+				b := promptctx.NewBuilder().AddCore()
+				b.AddToolPrompts(groups...)
+				docList, _ := a.registry.ExecuteMap("list_available_documents", nil)
+				if docList != "" {
+					b.SetCatalog(promptctx.FormatCatalog(docList))
+				}
+				return b.Build()
+			}
+
+			fmt.Printf("[Agent] 병렬 모드: %d개 테이블 %v\n", len(tables), tables)
+			results, err := RunParallel(ctx, a.llm, a.registry, tables, query, a.skillName, buildPrompt)
+			if err != nil {
+				return "", err
+			}
+			return FormatParallelResults(results, query), nil
+		}
+	}
+
+	return a.runLoop(ctx)
+}
+
+// runLoop is the core agent loop, separated so SubAgent can call it directly.
+func (a *Agent) runLoop(ctx context.Context) (string, error) {
+	fmt.Printf("\n[Agent] Agentic Loop 시작...\n")
 	fmt.Println(strings.Repeat("=", 60))
 
 	step := 0
@@ -110,26 +206,17 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 		if ctx.Err() != nil {
 			return "사용자에 의해 중단되었습니다.", nil
 		}
-		resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
+		resp, err := a.llm.Chat(ctx, a.messages, a.getToolDefs())
 		if err != nil {
 			return "", fmt.Errorf("LLM call failed at step %d: %w", step, err)
 		}
 
 		msg := resp.Message
-		msg = a.fixToolCalls(msg)
-
-		if a.advanced {
-			msg = a.guardDashboardEarlyCall(ctx, msg)
-		}
-		msg = a.guardConsecutiveFailure(ctx, msg)
+		msg = fixer.Fix(msg, a.fixerCtx)
+		msg = a.guardPipeline.RunPreTool(ctx, a, msg)
 
 		if len(msg.ToolCalls) == 0 {
-			if a.advanced {
-				msg = a.guardChartOmission(ctx, msg)
-			}
-			if a.reportMode {
-				msg = a.guardReportOmission(ctx, msg)
-			}
+			msg = a.guardPipeline.RunPostLoop(ctx, a, msg)
 
 			if len(msg.ToolCalls) == 0 {
 				// Guard: empty response
@@ -141,9 +228,18 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 					})
 					continue
 				}
+				// Save final assistant response for multi-turn context
+				a.messages = append(a.messages, llm.Message{
+					Role:    "assistant",
+					Content: msg.Content,
+				})
 				fmt.Println(strings.Repeat("=", 60))
-				return msg.Content, nil
+				return appendMissingReportURL(msg.Content, a.messages), nil
 			}
+
+			// PostLoop guard re-prompted with tool calls → apply fixer + pre-tool guards
+			msg = fixer.Fix(msg, a.fixerCtx)
+			msg = a.guardPipeline.RunPreTool(ctx, a, msg)
 		}
 
 		// Execute tool calls
@@ -165,42 +261,11 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 				}
 			}
 
-			// 대시보드 시간 보정 (도구 실행 직전, dataMinDt/dataMaxDt가 캡처된 후)
-			if dashboardTools[tc.Function.Name] {
-				// Only fix time if LLM didn't already set it
-				existingStart, hasStart := tc.Function.Arguments["time_start"]
-				existingEnd, hasEnd := tc.Function.Arguments["time_end"]
-				_, startIsStr := existingStart.(string)
-				_, endIsStr := existingEnd.(string)
-				needsStartFix := !hasStart || !startIsStr || existingStart.(string) == ""
-				needsEndFix := !hasEnd || !endIsStr || existingEnd.(string) == ""
+			// Dashboard time correction
+			fixer.FixDashboardTime(&tc, a.fixerCtx)
 
-				startDt, endDt := a.timeStartDt, a.timeEndDt
-				if startDt == "" && a.dataMinDt != "" {
-					startDt = a.dataMinDt
-				}
-				if endDt == "" && a.dataMaxDt != "" {
-					endDt = a.dataMaxDt
-				}
-				if startDt != "" && endDt != "" {
-					if needsStartFix {
-						if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
-							tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
-						}
-					}
-					if needsEndFix {
-						if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
-							tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
-						}
-					}
-					if needsStartFix || needsEndFix {
-						fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
-					}
-				}
-			}
-
-			// TAG 검증: TQL 관련 도구 호출 시 태그명 확인
-			if tagErr := a.validateTagInArgs(tc.Function.Name, tc.Function.Arguments); tagErr != "" {
+			// TAG validation
+			if tagErr := fixer.ValidateTagInArgs(tc.Function.Name, tc.Function.Arguments, a.fixerCtx.KnownTags); tagErr != "" {
 				result := tagErr
 				fmt.Printf("  └─ ✗ TAG ERROR: %s\n", truncate(result, 500))
 				fmt.Println(strings.Repeat("-", 60))
@@ -211,19 +276,8 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 				continue
 			}
 
-			// save_tql_file: TO_DATE 시간 범위를 captureMaxTime이 갱신한 최신 값으로 교체
-			if tc.Function.Name == "save_tql_file" && a.timeStartDt != "" && a.timeEndDt != "" {
-				if content, ok := tc.Function.Arguments["tql_content"].(string); ok {
-					toDateRE := regexp.MustCompile(`TIME\s+BETWEEN\s+TO_DATE\('([^']+)'\)\s+AND\s+TO_DATE\('([^']+)'\)`)
-					if m := toDateRE.FindStringSubmatch(content); m != nil {
-						if m[1] != a.timeStartDt || m[2] != a.timeEndDt {
-							replacement := fmt.Sprintf("TIME BETWEEN TO_DATE('%s') AND TO_DATE('%s')", a.timeStartDt, a.timeEndDt)
-							tc.Function.Arguments["tql_content"] = strings.Replace(content, m[0], replacement, 1)
-							fmt.Printf("  [fix] TO_DATE: %s~%s → %s~%s\n", m[1], m[2], a.timeStartDt, a.timeEndDt)
-						}
-					}
-				}
-			}
+			// TQL time range fix
+			fixer.FixTQLTimeRange(&tc, a.fixerCtx)
 
 			result, err := a.registry.ExecuteMap(tc.Function.Name, tc.Function.Arguments)
 			if err != nil {
@@ -234,15 +288,8 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 			}
 			fmt.Println(strings.Repeat("-", 60))
 
-			// list_table_tags 결과에서 태그 목록 캡처
-			if tc.Function.Name == "list_table_tags" && err == nil {
-				a.captureKnownTags(result)
-			}
-
-			// execute_sql_query에서 MIN/MAX(TIME) 결과 캡처 (항상) + 시간 범위 재계산 (timeStartDt 있을 때만)
-			if tc.Function.Name == "execute_sql_query" && err == nil {
-				a.captureDataTimeRange(tc.Function.Arguments, result)
-			}
+			// Post-execution capture
+			fixer.CaptureResults(tc, result, err, a.fixerCtx)
 
 			a.messages = append(a.messages, llm.Message{
 				Role:    "tool",
@@ -255,13 +302,6 @@ func (a *Agent) Run(ctx context.Context, query string) (string, error) {
 	return "최대 실행 횟수에 도달했습니다.", nil
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + fmt.Sprintf("... (총 %d자)", len(s))
-}
-
 // RunStream executes the agent loop and yields events via a channel.
 func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 	ch := make(chan Event, 100)
@@ -269,10 +309,36 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 	go func() {
 		defer close(ch)
 
-		if a.HasHistory() {
-			a.ContinueMessages(query)
-		} else {
+		isFirstTurn := !a.HasHistory()
+		if isFirstTurn {
 			a.initMessages(query)
+		} else {
+			a.ContinueMessages(query)
+		}
+
+		// Sub-agent parallel delegation for streaming (2+ tables only)
+		if a.useSubAgents && isFirstTurn {
+			tables := detectTables(query, a.registry)
+			if len(tables) >= 2 {
+				buildPrompt := func(groups ...string) string {
+					b := promptctx.NewBuilder().AddCore()
+					b.AddToolPrompts(groups...)
+					docList, _ := a.registry.ExecuteMap("list_available_documents", nil)
+					if docList != "" {
+						b.SetCatalog(promptctx.FormatCatalog(docList))
+					}
+					return b.Build()
+				}
+
+				ch <- Event{Type: EventStatus, Content: fmt.Sprintf("병렬 분석 모드: %d개 테이블 %v", len(tables), tables)}
+				results, err := RunParallel(ctx, a.llm, a.registry, tables, query, a.skillName, buildPrompt)
+				if err != nil {
+					ch <- Event{Type: EventError, Content: err.Error()}
+				} else {
+					ch <- Event{Type: EventFinal, Content: FormatParallelResults(results, query)}
+				}
+				return
+			}
 		}
 		LoadTemplates()
 		ch <- Event{Type: EventStatus, Content: "답변 생성중..."}
@@ -283,7 +349,7 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 				ch <- Event{Type: EventFinal, Content: "사용자에 의해 중단되었습니다."}
 				return
 			}
-			resp, err := a.llm.ChatStream(ctx, a.messages, a.registry.AllToolDefs(), func(partial *llm.ChatResponse) {
+			resp, err := a.llm.ChatStream(ctx, a.messages, a.getToolDefs(), func(partial *llm.ChatResponse) {
 				if partial.Message.Content != "" {
 					ch <- Event{Type: EventStream, Content: partial.Message.Content}
 				}
@@ -294,19 +360,11 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 			}
 
 			msg := resp.Message
-			msg = a.fixToolCalls(msg)
-			if a.advanced {
-				msg = a.guardDashboardEarlyCall(ctx, msg)
-			}
-			msg = a.guardConsecutiveFailure(ctx, msg)
+			msg = fixer.Fix(msg, a.fixerCtx)
+			msg = a.guardPipeline.RunPreTool(ctx, a, msg)
 
 			if len(msg.ToolCalls) == 0 {
-				if a.advanced {
-					msg = a.guardChartOmission(ctx, msg)
-				}
-				if a.reportMode {
-					msg = a.guardReportOmission(ctx, msg)
-				}
+				msg = a.guardPipeline.RunPostLoop(ctx, a, msg)
 
 				if len(msg.ToolCalls) == 0 {
 					if msg.Content == "" {
@@ -316,9 +374,18 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 						})
 						continue
 					}
-					ch <- Event{Type: EventFinal, Content: msg.Content}
+					// Save final assistant response to messages for multi-turn context
+					a.messages = append(a.messages, llm.Message{
+						Role:    "assistant",
+						Content: msg.Content,
+					})
+					ch <- Event{Type: EventFinal, Content: appendMissingReportURL(msg.Content, a.messages)}
 					return
 				}
+
+				// PostLoop guard re-prompted with tool calls → apply fixer + pre-tool guards
+				msg = fixer.Fix(msg, a.fixerCtx)
+				msg = a.guardPipeline.RunPreTool(ctx, a, msg)
 			}
 
 			// Execute tool calls
@@ -344,55 +411,14 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 					Args: tc.Function.Arguments,
 				}
 
-				// save_tql_file: TO_DATE 시간 범위를 captureMaxTime이 갱신한 최신 값으로 교체
-				if tc.Function.Name == "save_tql_file" && a.timeStartDt != "" && a.timeEndDt != "" {
-					if content, ok := tc.Function.Arguments["tql_content"].(string); ok {
-						toDateRE := regexp.MustCompile(`TIME\s+BETWEEN\s+TO_DATE\('([^']+)'\)\s+AND\s+TO_DATE\('([^']+)'\)`)
-						if m := toDateRE.FindStringSubmatch(content); m != nil {
-							if m[1] != a.timeStartDt || m[2] != a.timeEndDt {
-								replacement := fmt.Sprintf("TIME BETWEEN TO_DATE('%s') AND TO_DATE('%s')", a.timeStartDt, a.timeEndDt)
-								tc.Function.Arguments["tql_content"] = strings.Replace(content, m[0], replacement, 1)
-								fmt.Printf("  [fix] TO_DATE: %s~%s → %s~%s\n", m[1], m[2], a.timeStartDt, a.timeEndDt)
-							}
-						}
-					}
-				}
+				// TQL time range fix
+				fixer.FixTQLTimeRange(&tc, a.fixerCtx)
 
-				// 대시보드 시간 보정 (도구 실행 직전, dataMinDt/dataMaxDt가 캡처된 후)
-				if dashboardTools[tc.Function.Name] {
-					existingStart2, hasStart2 := tc.Function.Arguments["time_start"]
-					existingEnd2, hasEnd2 := tc.Function.Arguments["time_end"]
-					_, startIsStr2 := existingStart2.(string)
-					_, endIsStr2 := existingEnd2.(string)
-					needsStartFix2 := !hasStart2 || !startIsStr2 || existingStart2.(string) == ""
-					needsEndFix2 := !hasEnd2 || !endIsStr2 || existingEnd2.(string) == ""
+				// Dashboard time correction
+				fixer.FixDashboardTime(&tc, a.fixerCtx)
 
-					startDt, endDt := a.timeStartDt, a.timeEndDt
-					if startDt == "" && a.dataMinDt != "" {
-						startDt = a.dataMinDt
-					}
-					if endDt == "" && a.dataMaxDt != "" {
-						endDt = a.dataMaxDt
-					}
-					if startDt != "" && endDt != "" {
-						if needsStartFix2 {
-							if startTime, err := time.ParseInLocation(dtFormat, startDt, time.Local); err == nil {
-								tc.Function.Arguments["time_start"] = strconv.FormatInt(startTime.UnixMilli(), 10)
-							}
-						}
-						if needsEndFix2 {
-							if endTime, err := time.ParseInLocation(dtFormat, endDt, time.Local); err == nil {
-								tc.Function.Arguments["time_end"] = strconv.FormatInt(endTime.UnixMilli(), 10)
-							}
-						}
-						if needsStartFix2 || needsEndFix2 {
-							fmt.Printf("  [fix] dashboard time → %s ~ %s\n", startDt, endDt)
-						}
-					}
-				}
-
-				// TAG 검증: TQL 관련 도구 호출 시 태그명 확인
-				if tagErr := a.validateTagInArgs(tc.Function.Name, tc.Function.Arguments); tagErr != "" {
+				// TAG validation
+				if tagErr := fixer.ValidateTagInArgs(tc.Function.Name, tc.Function.Arguments, a.fixerCtx.KnownTags); tagErr != "" {
 					ch <- Event{
 						Type:    EventToolResult,
 						Status:  "error",
@@ -418,15 +444,8 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 					Content: result,
 				}
 
-				// list_table_tags 결과에서 태그 목록 캡처
-				if tc.Function.Name == "list_table_tags" && err == nil {
-					a.captureKnownTags(result)
-				}
-
-				// execute_sql_query에서 MIN/MAX(TIME) 결과 캡처
-				if tc.Function.Name == "execute_sql_query" && err == nil {
-					a.captureDataTimeRange(tc.Function.Arguments, result)
-				}
+				// Post-execution capture
+				fixer.CaptureResults(tc, result, err, a.fixerCtx)
 
 				a.messages = append(a.messages, llm.Message{
 					Role:    "tool",
@@ -441,287 +460,137 @@ func (a *Agent) RunStream(ctx context.Context, query string) <-chan Event {
 	return ch
 }
 
-// advancedKeywords triggers advanced (TQL-based) analysis.
-var advancedKeywords = []string{"심층", "다각도", "고급", "fft", "rms"}
-
-func isAdvancedQuery(query string) bool {
-	q := strings.ToLower(query)
-	for _, kw := range advancedKeywords {
-		if strings.Contains(q, kw) {
-			return true
-		}
-	}
-	return false
-}
-
-// reportKeywords triggers HTML report generation mode.
-var reportKeywords = []string{"리포트", "보고서", "report"}
-
-func isReportQuery(query string) bool {
-	q := strings.ToLower(query)
-	for _, kw := range reportKeywords {
-		if strings.Contains(q, kw) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsAny(s string, keywords []string) bool {
-	for _, kw := range keywords {
-		if strings.Contains(s, kw) {
-			return true
-		}
-	}
-	return false
-}
-
-// timeRangeRE matches patterns like "최근 3시간", "지난 7일", "최근 30분"
-var timeRangeRE = regexp.MustCompile(`(최근|지난)\s*(\d+)\s*(시간|분|일|주)`)
-
-// timeRangeResult holds parsed time range info.
-type timeRangeResult struct {
-	startMs  string // epoch milliseconds (for dashboard time_start)
-	endMs    string // epoch milliseconds (for dashboard time_end)
-	startDt  string // datetime string e.g. "2026-04-07 13:00:00" (for TQL TO_DATE)
-	endDt    string // datetime string e.g. "2026-04-07 14:00:00" (for TQL TO_DATE)
-	label    string // e.g. "최근 1시간"
-	unit     string // recommended ROLLUP unit: 'sec', 'min', 'hour', 'day'
-}
-
-const dtFormat = "2006-01-02 15:04:05"
-
-// parseTimeRange detects relative time expressions in the query.
-// Returns nil if no time keyword is found.
-func parseTimeRange(query string) *timeRangeResult {
-	now := time.Now()
-
-	var startTime time.Time
-	var label string
-
-	// "오늘" → today 00:00 ~ now
-	if strings.Contains(query, "오늘") {
-		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		label = "오늘"
+// buildSystemPrompt constructs the system prompt for a given skill.
+// This is called on first turn and whenever skill changes.
+func (a *Agent) buildSystemPrompt(activeSkill *skill.Skill) string {
+	isOllama := false
+	if _, ok := a.llm.(*llm.OllamaClient); ok {
+		isOllama = true
 	}
 
-	// "최근 N시간/분/일/주", "지난 N시간/분/일/주"
-	if label == "" {
-		m := timeRangeRE.FindStringSubmatch(query)
-		if m != nil {
-			n, _ := strconv.Atoi(m[2])
-			unit := m[3]
-			var d time.Duration
-			switch unit {
-			case "분":
-				d = time.Duration(n) * time.Minute
-			case "시간":
-				d = time.Duration(n) * time.Hour
-			case "일":
-				d = time.Duration(n) * 24 * time.Hour
-			case "주":
-				d = time.Duration(n) * 7 * 24 * time.Hour
-			}
-			startTime = now.Add(-d)
-			label = m[0]
-		}
+	builder := promptctx.NewBuilder()
+	if isOllama {
+		builder.SetOllama()
 	}
-
-	if label == "" {
-		return nil
-	}
-
-	// Select appropriate ROLLUP unit based on duration
-	dur := now.Sub(startTime)
-	rollupUnit := "'day'"
-	switch {
-	case dur <= 2*time.Hour:
-		rollupUnit = "'sec'"
-	case dur <= 24*time.Hour:
-		rollupUnit = "'min'"
-	case dur <= 7*24*time.Hour:
-		rollupUnit = "'hour'"
-	}
-
-	return &timeRangeResult{
-		startMs: strconv.FormatInt(startTime.UnixMilli(), 10),
-		endMs:   strconv.FormatInt(now.UnixMilli(), 10),
-		startDt: startTime.Format(dtFormat),
-		endDt:   now.Format(dtFormat),
-		label:   label,
-		unit:    rollupUnit,
-	}
-}
-
-// captureDataTimeRange intercepts execute_sql_query results containing MIN(TIME)/MAX(TIME).
-// 1. Always stores dataMinDt/dataMaxDt for template expansion fallback.
-// 2. If timeStartDt/timeEndDt (from parseTimeRange) is beyond the data range, recalculates.
-func (a *Agent) captureDataTimeRange(args map[string]interface{}, result string) {
-	sqlQuery, _ := args["sql_query"].(string)
-	upperQuery := strings.ToUpper(sqlQuery)
-	hasMinMax := strings.Contains(upperQuery, "MAX(TIME)") || strings.Contains(upperQuery, "MIN(TIME)")
-	hasOrderLimit := strings.Contains(upperQuery, "ORDER BY TIME") && strings.Contains(upperQuery, "LIMIT 1")
-	if !hasMinMax && !hasOrderLimit {
-		return
-	}
-
-	var minMs, maxMs int64
-	var foundMin, foundMax bool
-
-	trimmed := strings.TrimSpace(result)
-
-	if strings.HasPrefix(trimmed, "{") {
-		// JSON format: {"data":{"columns":["min_time","max_time"],"rows":[[123,456]]}}
-		type jsonResult struct {
-			Data struct {
-				Columns []string        `json:"columns"`
-				Rows    [][]interface{} `json:"rows"`
-			} `json:"data"`
-		}
-		var jr jsonResult
-		if err := json.Unmarshal([]byte(trimmed), &jr); err == nil && len(jr.Data.Rows) > 0 {
-			row := jr.Data.Rows[0]
-			for i, col := range jr.Data.Columns {
-				upper := strings.ToUpper(col)
-				if i < len(row) {
-					var val int64
-					switch v := row[i].(type) {
-					case float64:
-						val = int64(v)
-					case json.Number:
-						val, _ = v.Int64()
-					}
-					if (strings.Contains(upper, "MIN") || strings.HasSuffix(upper, "MIN_TIME")) && !foundMin {
-						minMs = val
-						foundMin = true
-					}
-					if (strings.Contains(upper, "MAX") || strings.HasSuffix(upper, "MAX_TIME")) && !foundMax {
-						maxMs = val
-						foundMax = true
-					}
-				}
-			}
-		}
+	if !activeSkill.SkipCore {
+		builder.AddCore()
 	} else {
-		// CSV format: MIN(TIME),MAX(TIME)\n123,456  or  TIME,VALUE\n123,84.12
-		lines := strings.Split(trimmed, "\n")
-		if len(lines) >= 2 {
-			headers := strings.Split(lines[0], ",")
-			values := strings.Split(lines[1], ",")
-			for i, h := range headers {
-				upper := strings.ToUpper(strings.TrimSpace(h))
-				if i < len(values) {
-					if (strings.Contains(upper, "MIN")) && !foundMin {
-						if ms, ok := parseTimeValue(strings.TrimSpace(values[i])); ok {
-							minMs = ms
-							foundMin = true
-						}
-					}
-					if (strings.Contains(upper, "MAX")) && !foundMax {
-						if ms, ok := parseTimeValue(strings.TrimSpace(values[i])); ok {
-							maxMs = ms
-							foundMax = true
-						}
-					}
-					// ORDER BY TIME DESC/ASC LIMIT 1: treat TIME column as MAX or MIN
-					if hasOrderLimit && upper == "TIME" && !foundMax && !foundMin {
-						if ms, ok := parseTimeValue(strings.TrimSpace(values[i])); ok {
-							if strings.Contains(upperQuery, "DESC") {
-								maxMs = ms
-								foundMax = true
-							} else {
-								minMs = ms
-								foundMin = true
-							}
-						}
-					}
-				}
-			}
-		}
+		builder.AddSegment("Role")
+	}
+	builder.AddWorkflow(activeSkill.Workflows...)
+	builder.AddToolPrompts(activeSkill.ToolGroups...)
+
+	// Inject document catalog
+	if a.docCatalog != "" {
+		builder.SetCatalog(a.docCatalog)
 	}
 
-	if foundMin {
-		a.dataMinDt = time.UnixMilli(minMs).Format(dtFormat)
-		fmt.Printf("  [capture] MIN(TIME): %d → %s\n", minMs, a.dataMinDt)
-	}
-	if foundMax {
-		maxTime := time.UnixMilli(maxMs)
-		a.dataMaxDt = maxTime.Format(dtFormat)
-		fmt.Printf("  [capture] MAX(TIME): %d → %s\n", maxMs, a.dataMaxDt)
+	systemPrompt := builder.Build()
 
-		// If timeStartDt is set (user specified range) and beyond data, recalculate
-		if a.timeStartDt != "" && a.timeEndDt != "" {
-			if currentEnd, err := time.Parse(dtFormat, a.timeEndDt); err == nil {
-				fmt.Printf("  [capture] compare: maxTime=%s, currentEnd=%s, before=%v\n",
-					maxTime.Format(dtFormat), currentEnd.Format(dtFormat), maxTime.Before(currentEnd))
-				if maxTime.Before(currentEnd) {
-					currentStart, _ := time.Parse(dtFormat, a.timeStartDt)
-					dur := currentEnd.Sub(currentStart)
-					a.timeStartDt = maxTime.Add(-dur).Format(dtFormat)
-					a.timeEndDt = maxTime.Format(dtFormat)
-					fmt.Printf("  [TimeRange] 데이터 기반 갱신: %s ~ %s\n", a.timeStartDt, a.timeEndDt)
-				}
-			}
-		} else {
-			fmt.Printf("  [capture] skip recalc: timeStartDt=%q, timeEndDt=%q\n", a.timeStartDt, a.timeEndDt)
-		}
+	if isOllama {
+		systemPrompt += "\n/no_think"
 	}
-	if !foundMin && !foundMax {
-		fmt.Printf("  [capture] no MIN/MAX found in result\n")
-	}
+	return systemPrompt
 }
 
-// parseTimeValue parses a time value as epoch milliseconds (int64) or datetime string.
-func parseTimeValue(s string) (int64, bool) {
-	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return v, true
-	}
-	// Try datetime formats: "2006-01-02 15:04:05", "2006-01-02"
-	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02"} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UnixMilli(), true
+// applySkill updates toolDefs and provider-specific settings for the active skill.
+func (a *Agent) applySkill(activeSkill *skill.Skill) {
+	if activeSkill.AllowTools != nil {
+		allowed := make(map[string]bool, len(activeSkill.AllowTools))
+		for _, t := range activeSkill.AllowTools {
+			allowed[t] = true
 		}
+		allDefs := a.registry.AllToolDefs()
+		filtered := make([]map[string]any, 0, len(activeSkill.AllowTools))
+		for _, def := range allDefs {
+			fn := def["function"].(map[string]any)
+			if allowed[fn["name"].(string)] {
+				filtered = append(filtered, def)
+			}
+		}
+		a.toolDefs = filtered
+	} else {
+		a.toolDefs = a.registry.AllToolDefs()
 	}
-	return 0, false
 }
 
 func (a *Agent) initMessages(query string) {
-	// Inject document catalog into system prompt
+	// 1. Skill classification
+	skillRegistry := skill.NewRegistry()
+	activeSkill := skillRegistry.Classify(query)
+
+	// 2. Set agent mode flags from skill
+	a.skillName = activeSkill.Name
+	a.advanced = (activeSkill.Name == "AdvancedAnalysis")
+	a.reportMode = (activeSkill.Name == "Report")
+
+	// 3. Load document catalog (cached for reuse across turns)
 	docList, _ := a.registry.ExecuteMap("list_available_documents", nil)
-	systemPrompt := llm.SystemPrompt
-	if _, ok := a.llm.(*llm.OllamaClient); ok {
-		systemPrompt = llm.OllamaSystemPrompt
-	}
 	if docList != "" {
-		systemPrompt += "\n\n## 문서 카탈로그 (경로 | 한국어 제목 | 키워드)\n" + docList + "\n"
-	}
-	// Ollama: append /no_think after catalog so catalog gets attention before thinking stops
-	if _, ok := a.llm.(*llm.OllamaClient); ok {
-		systemPrompt += "\n/no_think"
+		a.docCatalog = promptctx.FormatCatalog(docList)
 	}
 
-	// Detect analysis type and set agent mode
+	// 4. Build system prompt for current skill
+	systemPrompt := a.buildSystemPrompt(activeSkill)
+
+	// 5. Build user content with skill hint + time range
 	userContent := query
-	tr := parseTimeRange(query)
-	timeHint := "반드시 SELECT MIN(TIME), MAX(TIME) FROM 테이블 (timeformat='ms')로 시간 범위를 먼저 조회하고, " +
-		"그 결과를 time_start/time_end에 문자열로 전달하세요. now-1h 등 상대값 사용 금지!"
-	if tr != nil {
-		timeHint = fmt.Sprintf("시간 범위가 지정되었습니다. time_start=%s, time_end=%s (%s). "+
-			"이 값을 create_dashboard_with_charts의 time_start, time_end에 그대로 사용하세요. "+
-			"통계 SQL 조회(execute_sql_query) 시에도 WHERE TIME BETWEEN TO_DATE('%s') AND TO_DATE('%s') 조건을 추가하여 이 범위 내 데이터만 조회하세요. "+
-			"ROLLUP UNIT은 %s을 사용하세요. "+
-			"단, 이 시간 범위에 데이터가 없으면 SELECT MAX(TIME) FROM 테이블 (timeformat='ms')로 최신 시점을 확인하고, "+
-			"최신 시점에서 %s 범위를 역산하여 사용하세요.", tr.startMs, tr.endMs, tr.label, tr.startDt, tr.endDt, tr.unit, tr.label)
-		// Store datetime strings for TQL template {TIME_START}/{TIME_END} substitution
-		a.timeStartDt = tr.startDt
-		a.timeEndDt = tr.endDt
+	if tr := parseTimeRange(query); tr != nil {
+		a.fixerCtx.TimeStartDt = tr.StartDt
+		a.fixerCtx.TimeEndDt = tr.EndDt
 	} else {
-		a.timeStartDt = ""
-		a.timeEndDt = ""
+		a.fixerCtx.TimeStartDt = ""
+		a.fixerCtx.TimeEndDt = ""
 	}
-	if isReportQuery(query) {
-		a.reportMode = true
-		a.advanced = false
+
+	if hint := buildSkillHint(query); hint != "" {
+		userContent += "\n\n" + hint
+	}
+
+	// 6. Set messages
+	a.messages = []llm.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userContent},
+	}
+
+	// 7. Provider-specific optimizations
+	if ollamaClient, ok := a.llm.(*llm.OllamaClient); ok {
+		ollamaClient.SetNumKeep(activeSkill.Name)
+	}
+	if geminiClient, ok := a.llm.(*llm.GeminiClient); ok {
+		geminiClient.SetupCache(systemPrompt, a.getToolDefs())
+	}
+
+	// 8. Filter tool definitions based on skill
+	a.applySkill(activeSkill)
+
+	fmt.Printf("[Agent] Skill: %s | Workflows: %v | ToolGroups: %v | Tools: %d/%d\n",
+		activeSkill.Name, activeSkill.Workflows, activeSkill.ToolGroups,
+		len(a.toolDefs), len(a.getToolDefs()))
+}
+
+// HasHistory returns true if the agent has prior conversation messages.
+func (a *Agent) HasHistory() bool {
+	return len(a.messages) > 0
+}
+
+// buildSkillHint returns a skill-specific hint string for the given query.
+// Used by both initMessages and ContinueMessages to guide the LLM.
+func buildSkillHint(query string) string {
+	skillRegistry := skill.NewRegistry()
+	activeSkill := skillRegistry.Classify(query)
+
+	timeHint := " 반드시 SELECT MIN(TIME), MAX(TIME) FROM 테이블 (timeformat='ms')로 시간 범위를 먼저 조회하고, " +
+		"그 결과를 time_start/time_end에 문자열로 전달하세요. now-1h 등 상대값 사용 금지!"
+	if tr := parseTimeRange(query); tr != nil {
+		timeHint = fmt.Sprintf(" 시간 범위가 지정되었습니다. time_start=%s, time_end=%s (%s). "+
+			"이 값을 time_start, time_end에 그대로 사용하세요. "+
+			"통계 SQL 조회 시에도 WHERE TIME BETWEEN TO_DATE('%s') AND TO_DATE('%s') 조건을 추가하세요. "+
+			"ROLLUP UNIT은 %s을 사용하세요.", tr.StartMs, tr.EndMs, tr.Label, tr.StartDt, tr.EndDt, tr.Unit)
+	}
+
+	switch activeSkill.Name {
+	case "Report":
 		templateHint := ""
 		queryLower := strings.ToLower(query)
 		if containsAny(queryLower, []string{"금융", "주식", "종목", "주가", "환율", "원자재", "finance", "stock"}) {
@@ -731,118 +600,71 @@ func (a *Agent) initMessages(query string) {
 		} else if containsAny(queryLower, []string{"운전", "운행", "주행", "차량", "driving", "드라이빙"}) {
 			templateHint = " template_id='R-3'로 지정하세요."
 		}
-		userContent += "\n\n[시스템 힌트: HTML 분석 리포트 요청입니다. " +
+		return "[시스템 힌트: HTML 분석 리포트 요청입니다. " +
 			"사전 쿼리(execute_sql_query, list_table_tags) 없이 save_html_report(table=테이블명)을 바로 호출하세요." +
 			templateHint + " " +
 			"통계/태그/시간범위는 도구가 내부에서 처리합니다. " +
 			"create_dashboard_with_charts, create_dashboard, add_chart_to_dashboard, save_tql_file, create_folder 사용 절대 금지! " +
-			"오직 save_html_report만 사용하세요. " + timeHint + "]"
-	} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
-		a.advanced = isAdvancedQuery(query)
-		if a.advanced {
-			userContent += "\n\n[시스템 힌트: 고급 분석 키워드가 감지되었습니다. 고급 분석(TQL 템플릿) 절차를 따르세요. " + timeHint + "]"
-		} else {
-			userContent += "\n\n[시스템 힌트: 기본 분석 요청입니다. 반드시 기본 분석(table-based 차트, create_dashboard_with_charts) 절차를 따르세요. " +
-				"TQL 파일/템플릿/save_tql_file/create_folder를 절대 사용하지 마세요. create_dashboard_with_charts 한 번으로 대시보드를 완성하세요. " +
-				timeHint + "]"
-		}
+			"오직 save_html_report만 사용하세요. " +
+			"리포트 생성 후 도구 결과에 포함된 URL 링크를 반드시 ��종 답변에 포함하세요!" + timeHint + "]"
+	case "AdvancedAnalysis":
+		return "[시스템 힌트: 고급 분석 키워드가 감지되었습니다. 고급 분석(TQL 템플릿) 절차를 따르세요." + timeHint + "]"
+	case "BasicAnalysis":
+		return "[시스템 힌트: 기본 분석 요청입니다. 반드시 기본 분석(table-based 차트, create_dashboard_with_charts) 절차를 따르세요. " +
+			"TQL 파일/템플릿/save_tql_file/create_folder를 절대 사용하지 마세요." + timeHint + "]"
 	}
-
-	a.messages = []llm.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userContent},
-	}
-
-	// Set num_keep for Ollama to pin system prompt in KV cache
-	if ollamaClient, ok := a.llm.(*llm.OllamaClient); ok {
-		ollamaClient.SetNumKeep(systemPrompt)
-	}
-
-	// Set up context cache for Gemini (system prompt + tools)
-	if geminiClient, ok := a.llm.(*llm.GeminiClient); ok {
-		geminiClient.SetupCache(systemPrompt, a.registry.AllToolDefs())
-	}
-}
-
-// HasHistory returns true if the agent has prior conversation messages.
-func (a *Agent) HasHistory() bool {
-	return len(a.messages) > 0
+	return ""
 }
 
 // ContinueMessages appends a new user query to existing conversation history.
-// For Ollama, resets to [system + new query] with a short analysis hint.
 func (a *Agent) ContinueMessages(query string) {
-	// 이전 턴의 모드 및 시간 범위 값 리셋
-	a.reportMode = false
-	a.advanced = false
-	a.timeStartDt = ""
-	a.timeEndDt = ""
-	a.dataMinDt = ""
-	a.dataMaxDt = ""
+	// Reset time range values from previous turn
+	a.fixerCtx.TimeStartDt = ""
+	a.fixerCtx.TimeEndDt = ""
+	a.fixerCtx.DataMinDt = ""
+	a.fixerCtx.DataMaxDt = ""
 
-	// 새 질문에 시간 지정이 있으면 다시 설정
+	// Re-parse time range for new query
 	if tr := parseTimeRange(query); tr != nil {
-		a.timeStartDt = tr.startDt
-		a.timeEndDt = tr.endDt
+		a.fixerCtx.TimeStartDt = tr.StartDt
+		a.fixerCtx.TimeEndDt = tr.EndDt
 	}
 
-	// 리포트 유형 힌트 생성 (Ollama / non-Ollama 공통)
-	templateHint := ""
-	if isReportQuery(query) {
-		queryLower := strings.ToLower(query)
-		if containsAny(queryLower, []string{"금융", "주식", "종목", "주가", "환율", "원자재", "finance", "stock"}) {
-			templateHint = " template_id='R-1'로 지정하세요."
-		} else if containsAny(queryLower, []string{"진동", "vibration", "베어링", "bearing"}) {
-			templateHint = " template_id='R-2'로 지정하세요."
-		} else if containsAny(queryLower, []string{"운전", "운행", "주행", "차량", "driving", "드라이빙"}) {
-			templateHint = " template_id='R-3'로 지정하세요."
-		}
+	// Re-classify skill
+	skillRegistry := skill.NewRegistry()
+	activeSkill := skillRegistry.Classify(query)
+	prevSkill := a.skillName
+
+	// Update agent mode flags
+	a.skillName = activeSkill.Name
+	a.reportMode = (activeSkill.Name == "Report")
+	a.advanced = (activeSkill.Name == "AdvancedAnalysis")
+
+	// Log skill classification every turn
+	fmt.Printf("[Agent] Skill: %s | Workflows: %v | ToolGroups: %v | Tools: %d\n",
+		activeSkill.Name, activeSkill.Workflows, activeSkill.ToolGroups, len(a.toolDefs))
+
+	// Skill changed → compact history + rebuild system prompt
+	if activeSkill.Name != prevSkill {
+		a.messages = compactHistory(a.messages)
+		newPrompt := a.buildSystemPrompt(activeSkill)
+		a.messages[0] = llm.Message{Role: "system", Content: newPrompt}
+		fmt.Printf("[Agent] Skill switch: %s → %s (system prompt rebuilt, history compacted: %d messages)\n",
+			prevSkill, activeSkill.Name, len(a.messages))
+	}
+
+	// Update toolDefs based on new skill
+	a.applySkill(activeSkill)
+
+	// Build user content with skill hint
+	userContent := query
+	if hint := buildSkillHint(query); hint != "" {
+		userContent += "\n\n" + hint
 	}
 
 	if _, ok := a.llm.(*llm.OllamaClient); ok {
-		userContent := query
-		if isReportQuery(query) {
-			a.reportMode = true
-			a.advanced = false
-			userContent += "\n\n[사전 쿼리 없이 save_html_report(table=테이블명)을 바로 호출하세요." + templateHint + "]"
-		} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
-			if isAdvancedQuery(query) {
-				a.advanced = true
-				userContent += "\n\n[고급 분석(TQL 템플릿) 절차를 따르세요.]"
-			} else {
-				a.advanced = false
-				userContent += "\n\n[기본 분석(table-based 차트) 절차를 따르세요.]"
-			}
-		}
-		if tr := parseTimeRange(query); tr != nil {
-			userContent += fmt.Sprintf("\n\n[시간 범위: time_start=%s, time_end=%s (%s). UNIT은 %s 사용. 이 값을 그대로 사용하세요.]", tr.startMs, tr.endMs, tr.label, tr.unit)
-		}
 		a.messages = []llm.Message{a.messages[0], {Role: "user", Content: userContent}}
 	} else {
-		userContent := query
-		timeHint := "반드시 SELECT MIN(TIME), MAX(TIME) FROM 테이블 (timeformat='ms')로 시간 범위를 먼저 조회하고, " +
-			"그 결과를 time_start/time_end에 문자열로 전달하세요. now-1h 등 상대값 사용 금지!"
-		if tr := parseTimeRange(query); tr != nil {
-			timeHint = fmt.Sprintf("시간 범위가 지정되었습니다. time_start=%s, time_end=%s (%s). 이 값을 그대로 사용하세요.", tr.startMs, tr.endMs, tr.label)
-		}
-		if isReportQuery(query) {
-			a.reportMode = true
-			a.advanced = false
-			userContent += "\n\n[시스템 힌트: HTML 분석 리포트 요청입니다. " +
-				"사전 쿼리(execute_sql_query, list_table_tags) 없이 save_html_report(table=테이블명)을 바로 호출하세요." +
-				templateHint + " " +
-				"통계/태그/시간범위는 도구가 내부에서 처리합니다. " +
-				"create_dashboard_with_charts, create_dashboard, add_chart_to_dashboard, save_tql_file, create_folder 사용 절대 금지! " +
-				"오직 save_html_report만 사용하세요. " + timeHint + "]"
-		} else if strings.Contains(query, "분석") || strings.Contains(query, "대시보드") {
-			a.advanced = isAdvancedQuery(query)
-			if a.advanced {
-				userContent += "\n\n[시스템 힌트: 고급 분석 키워드가 감지되었습니다. 고급 분석(TQL 템플릿) 절차를 따르세요. " + timeHint + "]"
-			} else {
-				userContent += "\n\n[시스템 힌트: 기본 분석 요청입니다. 반드시 기본 분석(table-based 차트, create_dashboard_with_charts) 절차를 따르세요. " +
-					"TQL 파일/템플릿/save_tql_file/create_folder를 절대 사용하지 마세요. " + timeHint + "]"
-			}
-		}
 		a.messages = append(a.messages, llm.Message{
 			Role:    "user",
 			Content: userContent,
@@ -850,1031 +672,28 @@ func (a *Agent) ContinueMessages(query string) {
 	}
 }
 
-// inferTableName scans previous messages to find a table name.
-// 1) Find list_tables result → extract known table names
-// 2) Match against user query or LLM text mentioning a table
-// 3) If only one table exists, use it directly
-func (a *Agent) inferTableName() string {
-	// Collect known table names from list_tables results
-	var knownTables []string
-	for i, m := range a.messages {
-		if m.Role == "tool" && i > 0 {
-			// Check if previous message had a list_tables call
-			prev := a.messages[i-1]
-			for _, tc := range prev.ToolCalls {
-				if tc.Function.Name == "list_tables" {
-					for _, line := range strings.Split(strings.TrimSpace(m.Content), "\n") {
-						t := strings.TrimSpace(line)
-						if t != "" && t != "NAME" && !strings.Contains(t, " ") {
-							knownTables = append(knownTables, t)
-						}
-					}
-				}
+// appendMissingReportURL checks if a report was generated in this session
+// and the final response is missing the URL. If so, appends it.
+func appendMissingReportURL(content string, messages []llm.Message) string {
+	// Find the last report URL from tool results (scan in reverse)
+	var lastURL string
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.Role == "tool" && strings.Contains(msg.Content, "Report saved:") {
+			// Extract URL from markdown link: [리포트 열기](http://...)
+			start := strings.Index(msg.Content, "](")
+			end := strings.LastIndex(msg.Content, ")")
+			if start != -1 && end > start {
+				lastURL = msg.Content[start+2 : end]
 			}
-		}
-	}
-
-	if len(knownTables) == 0 {
-		return ""
-	}
-	if len(knownTables) == 1 {
-		return knownTables[0]
-	}
-
-	// Find user query and LLM text to match against table names
-	var searchText string
-	for _, m := range a.messages {
-		if m.Role == "user" || m.Role == "assistant" {
-			searchText += " " + strings.ToUpper(m.Content)
-		}
-	}
-
-	for _, t := range knownTables {
-		if strings.Contains(searchText, t) {
-			return t
-		}
-	}
-
-	return ""
-}
-
-// --- Tool call auto-fixing (mirrors Python _fix_tool_calls) ---
-
-func (a *Agent) fixToolCalls(msg llm.Message) llm.Message {
-	if len(msg.ToolCalls) == 0 {
-		return msg
-	}
-
-	for i := range msg.ToolCalls {
-		tc := &msg.ToolCalls[i]
-		args := tc.Function.Arguments
-		if args == nil {
-			args = map[string]any{}
-			tc.Function.Arguments = args
-		}
-		name := tc.Function.Name
-
-		// Normalize alias keys to canonical names BEFORE any key-specific logic.
-		// This ensures template detection, dashboard title fix, etc. all work
-		// regardless of which parameter name the LLM chose to use.
-		normalizeArgs(name, args)
-
-		// list_table_tags: table_name 누락 시 이전 messages에서 자동 추론
-		if name == "list_table_tags" {
-			table, _ := args["table_name"].(string)
-			if table == "" {
-				if inferred := a.inferTableName(); inferred != "" {
-					args["table_name"] = inferred
-					fmt.Printf("  [fix] list_table_tags table_name 자동 삽입: %s\n", inferred)
-				}
-			}
-		}
-
-		// save_tql_file: tql_content가 비어있으면 filename에서 템플릿 ID를 추출하여 TEMPLATE 참조 생성
-		if name == "save_tql_file" {
-			tqlContent, _ := args["tql_content"].(string)
-			if strings.TrimSpace(tqlContent) == "" {
-				fn, _ := args["filename"].(string)
-				if idMatch := templateIDRE.FindString(fn); idMatch != "" {
-					idMatch = strings.ReplaceAll(idMatch, "_", "-")
-					table := a.inferTableName()
-					if table == "" {
-						table = strings.Split(fn, "/")[0]
-					}
-					tag := ""
-					if len(a.knownTags) > 0 {
-						tag = a.knownTags[0]
-					}
-					ref := fmt.Sprintf("TEMPLATE:%s TABLE:%s", idMatch, table)
-					if tag != "" {
-						ref += " TAG:" + tag
-					}
-					args["tql_content"] = ref
-					fmt.Printf("  [fix] save_tql_file tql_content was empty → auto-generated: %s\n", ref)
-				}
-			}
-		}
-
-		// save_html_report: inject parsed time range from agent (LLM cannot know current time)
-		if name == "save_html_report" && a.timeStartDt != "" {
-			args["time_start"] = a.timeStartDt
-			args["time_end"] = a.timeEndDt
-			fmt.Printf("  [fix] save_html_report time injected: %s ~ %s\n", a.timeStartDt, a.timeEndDt)
-		}
-
-		// time_start/time_end: float (scientific notation) → integer string
-		for _, tk := range []string{"time_start", "time_end"} {
-			if v, ok := args[tk]; ok {
-				switch n := v.(type) {
-				case float64:
-					args[tk] = strconv.FormatInt(int64(n), 10)
-				}
-			}
-		}
-
-		// Literal \n → real newline
-		for k, v := range args {
-			if s, ok := v.(string); ok && strings.Contains(s, "\\n") {
-				args[k] = strings.ReplaceAll(s, "\\n", "\n")
-			}
-		}
-
-		// charts: list/dict → JSON string, single quotes → double quotes
-		if charts, ok := args["charts"]; ok {
-			switch c := charts.(type) {
-			case []any, map[string]any:
-				data, _ := json.Marshal(c)
-				args["charts"] = string(data)
-			case string:
-				// Ollama(qwen) sends Python dict style with single quotes
-				if strings.Contains(c, "'") && !strings.Contains(c, "\"") {
-					args["charts"] = strings.ReplaceAll(c, "'", "\"")
-					fmt.Printf("  [fix] charts single quotes → double quotes\n")
-				}
-			}
-		}
-
-		// charts: table 필드 누락 시 자동 삽입
-		if chartsStr, ok := args["charts"].(string); ok && chartsStr != "" {
-			if inferred := a.inferTableName(); inferred != "" {
-				var chartList []map[string]any
-				if json.Unmarshal([]byte(chartsStr), &chartList) == nil {
-					fixed := false
-					for i := range chartList {
-						t, _ := chartList[i]["table"].(string)
-						if t == "" {
-							chartList[i]["table"] = inferred
-							fixed = true
-						}
-					}
-					if fixed {
-						data, _ := json.Marshal(chartList)
-						args["charts"] = string(data)
-						fmt.Printf("  [fix] charts table 자동 삽입: %s\n", inferred)
-					}
-				}
-			}
-		}
-
-		// time_start/time_end: normalize to epoch milliseconds
-		for _, key := range []string{"time_start", "time_end"} {
-			if v, ok := args[key].(string); ok {
-				if len(v) > 15 && isAllDigits(v) {
-					// nanoseconds → milliseconds
-					args[key] = v[:len(v)-6]
-				} else if !isAllDigits(v) {
-					// datetime string → epoch milliseconds
-					if ms, ok := parseTimeValue(v); ok {
-						args[key] = strconv.FormatInt(ms, 10)
-						fmt.Printf("  [fix] %s: %s → %d\n", key, v, ms)
-					}
-				}
-			}
-		}
-
-		// save_tql_file / delete_file: merge folder_name into filename
-		if name == "save_tql_file" || name == "delete_file" {
-			fn, _ := args["filename"].(string)
-			folder, _ := args["folder_name"].(string)
-			if fn != "" && folder != "" && !strings.Contains(fn, "/") {
-				args["filename"] = folder + "/" + fn
-				delete(args, "folder_name")
-				fmt.Printf("  [fix] Merged folder into filename: %s\n", args["filename"])
-			}
-		}
-
-		// Dashboard filename/title auto-fix for all dashboard tools
-		if dashboardTools[name] {
-			fn, _ := args["filename"].(string)
-
-			// filename이 비어있으면 테이블명 + 타임스탬프로 자동 생성
-			if fn == "" && (name == "create_dashboard" || name == "create_dashboard_with_charts") {
-				table := a.inferTableName()
-				if table == "" {
-					table = "DATA"
-				}
-				ts := time.Now().Format("20060102_150405")
-				fn = table + "/" + table + "_Dashboard_" + ts + ".dsh"
-				fmt.Printf("  [fix] Dashboard filename auto-generated: %s\n", fn)
-			}
-
-			if fn != "" {
-				// Auto-append .dsh extension
-				if !strings.HasSuffix(strings.ToLower(fn), ".dsh") {
-					fn = fn + ".dsh"
-				}
-				// If no folder, infer from filename or table context
-				if !strings.Contains(fn, "/") {
-					table := a.inferTableName()
-					if table == "" {
-						// e.g. "BITCOIN_analysis.dsh" → "BITCOIN/BITCOIN_analysis.dsh"
-						base := strings.TrimSuffix(fn, ".dsh")
-						parts := strings.SplitN(base, "_", 2)
-						table = strings.ToUpper(parts[0])
-					}
-					fn = table + "/" + fn
-				}
-				// 타임스탬프가 없으면 추가 (리포트와 동일 패턴)
-				if !timestampInFilename(fn) {
-					ts := time.Now().Format("20060102_150405")
-					base := strings.TrimSuffix(fn, ".dsh")
-					fn = base + "_" + ts + ".dsh"
-				}
-				args["filename"] = fn
-				fmt.Printf("  [fix] Dashboard filename → %s\n", fn)
-			}
-		}
-
-		// Dashboard title auto-fix
-		if name == "create_dashboard" || name == "create_dashboard_with_charts" {
-			title, _ := args["title"].(string)
-			if title == "" || title == "New dashboard" || title == "Dashboard" || title == "dashboard" {
-				fn, _ := args["filename"].(string)
-				table := strings.Split(fn, "/")[0]
-				if table == "" {
-					table = "데이터"
-				}
-				args["title"] = table + " 심층 분석 대시보드"
-			}
-		}
-
-		// TQL content: template reference detection → expansion
-		if tql, ok := args["tql_content"].(string); ok {
-			tql = strings.TrimSpace(tql)
-			match := templateRefRE.FindStringSubmatch(tql)
-			if match != nil {
-				params := map[string]string{"TABLE": match[2]}
-				if match[3] != "" {
-					params["TAG"] = match[3]
-				}
-				if match[4] != "" {
-					params["UNIT"] = match[4]
-				}
-				if match[5] != "" {
-					params["TAG1"] = match[5]
-				}
-				if match[6] != "" {
-					params["TAG2"] = match[6]
-				}
-				// Inject time range
-				if a.timeStartDt != "" {
-					params["TIME_START"] = a.timeStartDt
-					params["TIME_END"] = a.timeEndDt
-				} else if a.dataMinDt != "" && a.dataMaxDt != "" {
-					params["TIME_START"] = a.dataMinDt
-					params["TIME_END"] = a.dataMaxDt
-				} else {
-					params["TIME_START"] = "1970-01-01 00:00:00"
-					params["TIME_END"] = time.Now().Format(dtFormat)
-				}
-				expanded, err := ExpandTemplate(match[1], params)
-				if err == nil {
-					args["tql_content"] = expanded
-					fmt.Printf("  [fix] Template %s expanded\n", match[1])
-				}
-			} else {
-				// Try to auto-detect template from filename
-				autoExpanded := false
-				if fn, ok := args["filename"].(string); ok {
-					if idMatch := templateIDRE.FindString(fn); idMatch != "" {
-						idMatch = strings.ReplaceAll(idMatch, "_", "-") // normalize 1_1 → 1-1
-						table := strings.Split(fn, "/")[0]
-						nameRE := regexp.MustCompile(`NAME\s*=\s*'([^']+)'`)
-						unitRE := regexp.MustCompile(`ROLLUP\('(\w+)'`)
-						tag := ""
-						unit := "'day'"
-						if m := nameRE.FindStringSubmatch(tql); m != nil {
-							tag = m[1]
-						}
-						if m := unitRE.FindStringSubmatch(tql); m != nil {
-							unit = "'" + m[1] + "'"
-						}
-						params := map[string]string{"TABLE": table, "UNIT": unit}
-						if idMatch == "1-4" || idMatch == "3-2" {
-							tagsRE := regexp.MustCompile(`'([^']+)'`)
-							allTags := tagsRE.FindAllStringSubmatch(tql, -1)
-							var names []string
-							skipUnits := map[string]bool{"day": true, "hour": true, "sec": true, "min": true, "week": true, "month": true}
-							for _, t := range allTags {
-								if !skipUnits[t[1]] {
-									names = append(names, t[1])
-								}
-							}
-							if len(names) >= 2 {
-								params["TAG1"] = names[0]
-								params["TAG2"] = names[1]
-							}
-						} else if tag != "" {
-							params["TAG"] = tag
-						}
-						// raw TQL에서 TO_DATE 추출 → 있으면 그 값 우선 사용
-						toDateExtractRE := regexp.MustCompile(`TO_DATE\('([^']+)'\)`)
-						dates := toDateExtractRE.FindAllStringSubmatch(tql, 2)
-						if len(dates) >= 2 {
-							params["TIME_START"] = dates[0][1]
-							params["TIME_END"] = dates[1][1]
-						} else if a.timeStartDt != "" {
-							params["TIME_START"] = a.timeStartDt
-							params["TIME_END"] = a.timeEndDt
-						} else if a.dataMinDt != "" && a.dataMaxDt != "" {
-							params["TIME_START"] = a.dataMinDt
-							params["TIME_END"] = a.dataMaxDt
-						} else {
-							// 시간 범위도 없고 데이터 범위도 캡처 안 됨 → 건너뛰기
-							fmt.Printf("  [skip] Raw TQL auto-expand skipped (no time range)\n")
-							break
-						}
-						expanded, err := ExpandTemplate(idMatch, params)
-						if err == nil {
-							args["tql_content"] = expanded
-							autoExpanded = true
-							fmt.Printf("  [fix] Raw TQL → template %s auto-expanded\n", idMatch)
-						}
-					}
-				}
-				if !autoExpanded {
-					// Fix TQL line breaks
-					args["tql_content"] = tqlFuncRE.ReplaceAllStringFunc(tql, func(s string) string {
-						// Insert newline before function name
-						idx := strings.Index(s, ")")
-						return s[:idx+1] + "\n" + strings.TrimSpace(s[idx+1:])
-					})
-				}
-			}
-		}
-	}
-	return msg
-}
-
-// --- Guard: dashboard early-call defense ---
-
-func (a *Agent) guardDashboardEarlyCall(ctx context.Context, msg llm.Message) llm.Message {
-	if len(msg.ToolCalls) == 0 || !dashboardTools[msg.ToolCalls[0].Function.Name] {
-		return msg
-	}
-
-	savedIDs := a.getSavedTemplateIDs()
-
-	var templateType string
-	if len(savedIDs) > 0 {
-		for id := range savedIDs {
-			templateType = strings.Split(id, "-")[0]
 			break
 		}
 	}
 
-	expected := 4
-	if templateType != "" {
-		if e, ok := templateExpected[templateType]; ok {
-			expected = e
-		}
+	if lastURL == "" || strings.Contains(content, lastURL) {
+		return content
 	}
 
-	if len(savedIDs) >= expected {
-		return msg // Enough templates saved, allow dashboard creation
-	}
-
-	allIDs, _ := templateAllIDs[templateType]
-	var missingIDs []string
-	for _, id := range allIDs {
-		if !savedIDs[id] {
-			missingIDs = append(missingIDs, id)
-		}
-	}
-
-	nextID := "?"
-	if len(missingIDs) > 0 {
-		nextID = missingIDs[0]
-	}
-
-	fmt.Printf("[Agent] TQL %d/%d saved (type %s) → missing: %v\n", len(savedIDs), expected, templateType, missingIDs)
-
-	// Inject retry message (must add tool_result for each tool_use to satisfy Claude API)
-	a.messages = append(a.messages, msg)
-	for range msg.ToolCalls {
-		a.messages = append(a.messages, llm.Message{
-			Role:    "tool",
-			Content: "cancelled: dashboard creation deferred",
-		})
-	}
-	a.messages = append(a.messages, llm.Message{
-		Role: "user",
-		Content: fmt.Sprintf(
-			"⚠ 아직 TQL 파일이 %d/%d개만 저장되었습니다. "+
-				"미저장 템플릿: %v. "+
-				"지금 바로 save_tql_file을 호출하세요! "+
-				"tql_content: TEMPLATE:%s TABLE:(테이블명) TAG:(태그명) UNIT:(단위)",
-			len(savedIDs), expected, missingIDs, nextID,
-		),
-	})
-
-	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
-	if err != nil {
-		return msg
-	}
-	return a.fixToolCalls(resp.Message)
-}
-
-// --- Guard: consecutive failure detection ---
-
-func (a *Agent) guardConsecutiveFailure(ctx context.Context, msg llm.Message) llm.Message {
-	if len(msg.ToolCalls) == 0 {
-		return msg
-	}
-
-	toolName := msg.ToolCalls[0].Function.Name
-	failCount := a.countConsecutiveFailures(toolName)
-
-	if failCount < 2 {
-		return msg
-	}
-
-	fmt.Printf("[Agent] %s failed %d times → redirecting\n", toolName, failCount)
-
-	hint := fmt.Sprintf(
-		"⚠ %s이(가) %d회 연속 실패했습니다. "+
-			"같은 방식을 반복하지 마세요! "+
-			"에러 메시지를 읽고 원인을 파악한 후 완전히 다른 접근법을 사용하세요.",
-		toolName, failCount,
-	)
-	if toolName == "save_tql_file" {
-		hint = fmt.Sprintf(
-			"⚠ save_tql_file가 %d회 연속 실패했습니다. "+
-				"TQL 코드를 직접 작성하지 마세요! "+
-				"반드시 TEMPLATE:ID TABLE:테이블 TAG:태그 UNIT:단위 형식을 사용하세요.",
-			failCount,
-		)
-	}
-
-	a.messages = append(a.messages, msg)
-	for range msg.ToolCalls {
-		a.messages = append(a.messages, llm.Message{
-			Role:    "tool",
-			Content: "cancelled: redirecting due to consecutive failures",
-		})
-	}
-	a.messages = append(a.messages, llm.Message{Role: "user", Content: hint})
-
-	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
-	if err != nil {
-		return msg
-	}
-	return a.fixToolCalls(resp.Message)
-}
-
-// --- Guard: chart omission check ---
-
-func (a *Agent) guardChartOmission(ctx context.Context, msg llm.Message) llm.Message {
-	if msg.Content == "" || len(msg.ToolCalls) > 0 {
-		return msg
-	}
-
-	allMsgs := append(a.messages, msg)
-	savedTQLs := a.getSavedTQLPaths(allMsgs)
-	dashFn := a.getDashboardFilename(allMsgs)
-	chartCalls := a.countAddChartCalls(allMsgs)
-
-	if len(savedTQLs) == 0 || dashFn == "" || chartCalls >= len(savedTQLs) {
-		return msg
-	}
-
-	fmt.Printf("[Agent] Dashboard has %d/%d charts → prompting chart addition\n", chartCalls, len(savedTQLs))
-
-	var cmds []string
-	for _, st := range savedTQLs {
-		table := strings.Split(st.Path, "/")[0]
-		name := st.ID
-		if n, ok := templateNames[st.ID]; ok {
-			name = table + " " + n
-		}
-		cmds = append(cmds, fmt.Sprintf(
-			`add_chart_to_dashboard(filename="%s", chart_type="Tql chart", tql_path="%s", chart_title="%s")`,
-			dashFn, st.Path, name,
-		))
-	}
-
-	a.messages = append(a.messages, msg)
-	a.messages = append(a.messages, llm.Message{
-		Role: "user",
-		Content: fmt.Sprintf(
-			"⚠ 대시보드가 생성되었지만 차트가 추가되지 않았습니다! "+
-				"저장된 TQL 파일 %d개를 모두 대시보드에 추가하세요.\n"+
-				"대시보드: %s\n아래 호출을 모두 실행하세요:\n%s\n그 후 preview_dashboard를 호출하세요.",
-			len(savedTQLs), dashFn, strings.Join(cmds, "\n"),
-		),
-	})
-
-	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
-	if err != nil {
-		return msg
-	}
-	return a.fixToolCalls(resp.Message)
-}
-
-// --- Guard: report omission check ---
-
-func (a *Agent) guardReportOmission(ctx context.Context, msg llm.Message) llm.Message {
-	if msg.Content == "" || len(msg.ToolCalls) > 0 {
-		return msg
-	}
-
-	// Check if save_html_report was called in the CURRENT turn only
-	// (messages after the last user message, not the entire conversation)
-	turnStart := 0
-	for i := len(a.messages) - 1; i >= 0; i-- {
-		if a.messages[i].Role == "user" {
-			turnStart = i + 1
-			break
-		}
-	}
-	currentTurnMsgs := append(a.messages[turnStart:], msg)
-	for _, m := range currentTurnMsgs {
-		for _, tc := range m.ToolCalls {
-			if tc.Function.Name == "save_html_report" {
-				return msg // already attempted in this turn
-			}
-		}
-		// Also check tool results mentioning report
-		if strings.Contains(m.Content, "Report saved") || strings.Contains(m.Content, "INCOMPLETE") {
-			return msg
-		}
-	}
-
-	fmt.Println("[Agent] Report mode but save_html_report not called → prompting")
-
-	a.messages = append(a.messages, msg)
-	a.messages = append(a.messages, llm.Message{
-		Role:    "user",
-		Content: "아직 HTML 리포트가 저장되지 않았습니다. save_html_report를 사용하여 분석 결과를 HTML 보고서로 저장하세요.",
-	})
-
-	resp, err := a.llm.Chat(ctx, a.messages, a.registry.AllToolDefs())
-	if err != nil {
-		return msg
-	}
-	return a.fixToolCalls(resp.Message)
-}
-
-// --- Message analysis helpers ---
-
-type savedTQL struct {
-	ID   string
-	Path string
-}
-
-func (a *Agent) getSavedTemplateIDs() map[string]bool {
-	ids := map[string]bool{}
-	var pendingTIDs []string // queue: one entry per tool call in an assistant message
-
-	for _, msg := range a.messages {
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			pendingTIDs = nil // reset for new batch
-			for _, tc := range msg.ToolCalls {
-				if tc.Function.Name == "save_tql_file" {
-					fn, _ := tc.Function.Arguments["filename"].(string)
-					if m := templateIDRE.FindString(fn); m != "" {
-						pendingTIDs = append(pendingTIDs, strings.ReplaceAll(m, "_", "-"))
-					} else {
-						pendingTIDs = append(pendingTIDs, "") // placeholder
-					}
-				} else {
-					pendingTIDs = append(pendingTIDs, "") // non-save tool call
-				}
-			}
-		} else if msg.Role == "tool" && len(pendingTIDs) > 0 {
-			tid := pendingTIDs[0]
-			pendingTIDs = pendingTIDs[1:]
-			if tid != "" {
-				content := strings.ToLower(msg.Content)
-				if !strings.Contains(content, "error") && !strings.Contains(content, "fail") {
-					ids[tid] = true
-				}
-			}
-		}
-	}
-	return ids
-}
-
-func (a *Agent) getSavedTQLPaths(msgs []llm.Message) []savedTQL {
-	var saved []savedTQL
-	var pendingPaths []savedTQL // queue: one entry per tool call
-
-	for _, msg := range msgs {
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			pendingPaths = nil // reset for new batch
-			for _, tc := range msg.ToolCalls {
-				if tc.Function.Name == "save_tql_file" {
-					fn, _ := tc.Function.Arguments["filename"].(string)
-					tid := ""
-					if m := templateIDRE.FindString(fn); m != "" {
-						tid = strings.ReplaceAll(m, "_", "-")
-					}
-					pendingPaths = append(pendingPaths, savedTQL{ID: tid, Path: fn})
-				} else {
-					pendingPaths = append(pendingPaths, savedTQL{}) // placeholder
-				}
-			}
-		} else if msg.Role == "tool" && len(pendingPaths) > 0 {
-			p := pendingPaths[0]
-			pendingPaths = pendingPaths[1:]
-			if p.Path != "" {
-				content := strings.ToLower(msg.Content)
-				if !strings.Contains(content, "error") && !strings.Contains(content, "fail") {
-					saved = append(saved, p)
-				}
-			}
-		}
-	}
-	return saved
-}
-
-func (a *Agent) getDashboardFilename(msgs []llm.Message) string {
-	for _, msg := range msgs {
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			for _, tc := range msg.ToolCalls {
-				if dashboardTools[tc.Function.Name] {
-					if fn, ok := tc.Function.Arguments["filename"].(string); ok {
-						return fn
-					}
-				}
-			}
-		}
-	}
-	return ""
-}
-
-func (a *Agent) countAddChartCalls(msgs []llm.Message) int {
-	count := 0
-	for _, msg := range msgs {
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			for _, tc := range msg.ToolCalls {
-				if tc.Function.Name == "add_chart_to_dashboard" {
-					count++
-				} else if tc.Function.Name == "create_dashboard_with_charts" {
-					count += countChartsInArgs(tc.Function.Arguments)
-				}
-			}
-		}
-	}
-	return count
-}
-
-// countChartsInArgs extracts the number of charts from create_dashboard_with_charts arguments.
-func countChartsInArgs(args map[string]any) int {
-	charts, ok := args["charts"]
-	if !ok {
-		return 0
-	}
-	switch c := charts.(type) {
-	case []any:
-		return len(c)
-	case string:
-		var arr []any
-		if json.Unmarshal([]byte(c), &arr) == nil {
-			return len(arr)
-		}
-	}
-	return 0
-}
-
-func (a *Agent) countConsecutiveFailures(toolName string) int {
-	count := 0
-	for i := len(a.messages) - 1; i >= 0; i-- {
-		msg := a.messages[i]
-		if msg.Role == "tool" {
-			content := strings.ToLower(msg.Content)
-			if strings.Contains(content, "failed") || strings.Contains(content, "error") || strings.Contains(content, "failure") {
-				count++
-			} else {
-				break
-			}
-		} else if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			hasTargetTool := false
-			for _, tc := range msg.ToolCalls {
-				if tc.Function.Name == toolName {
-					hasTargetTool = true
-				}
-			}
-			if !hasTargetTool {
-				break
-			}
-		} else if msg.Role == "user" {
-			continue
-		} else {
-			break
-		}
-	}
-	return count
-}
-
-// captureKnownTags parses list_table_tags result and stores tag names.
-// Result format: "NAME\ntag1\ntag2\n..."
-func (a *Agent) captureKnownTags(result string) {
-	a.knownTags = nil
-	for _, line := range strings.Split(strings.TrimSpace(result), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || line == "NAME" {
-			continue
-		}
-		// Format: "[TABLE] tag1, tag2, tag3" (fallback 형식)
-		if strings.HasPrefix(line, "[") {
-			if idx := strings.Index(line, "] "); idx >= 0 {
-				for _, t := range strings.Split(line[idx+2:], ",") {
-					if tag := strings.TrimSpace(t); tag != "" {
-						a.knownTags = append(a.knownTags, tag)
-					}
-				}
-			}
-			continue
-		}
-		// Format: "tag" (기본 형식)
-		a.knownTags = append(a.knownTags, line)
-	}
-	if len(a.knownTags) > 0 {
-		fmt.Printf("  [guard] Known tags captured: %d tags\n", len(a.knownTags))
-	}
-}
-
-// validateTagInArgs checks if TAG parameters in TQL-related tool calls use valid tag names.
-// Returns error string if invalid, empty string if OK.
-func (a *Agent) validateTagInArgs(toolName string, args map[string]any) string {
-	if len(a.knownTags) == 0 {
-		return "" // no tags captured yet, skip validation
-	}
-
-	// Only validate TQL-related tools
-	if toolName != "save_tql_file" && toolName != "execute_tql_script" && toolName != "validate_chart_tql" {
-		return ""
-	}
-
-	// Extract TQL content
-	tql, _ := args["tql_content"].(string)
-	if tql == "" {
-		tql, _ = args["tql_script"].(string)
-	}
-	if tql == "" {
-		return ""
-	}
-
-	// Detect unsubstituted placeholders like {TAG}, {TAG1}, {TAG2}, {TABLE}, {UNIT}
-	placeholderRE := regexp.MustCompile(`\{(TAG\d?|TABLE|UNIT)\}`)
-	if found := placeholderRE.FindAllString(tql, -1); len(found) > 0 {
-		return fmt.Sprintf(
-			"Error: 플레이스홀더 %v가 치환되지 않았습니다. "+
-				"tql_content에 raw TQL을 직접 쓰지 마세요! "+
-				"반드시 TEMPLATE:ID TABLE:테이블 TAG:태그 UNIT:단위 형식을 사용하세요. "+
-				"예: TEMPLATE:3-2 TABLE:STAT TAG1:machbase:http:latency TAG2:machbase:ps:cpu_percent",
-			found)
-	}
-
-	// Check for NAME = 'tag' patterns in TQL
-	nameRE := regexp.MustCompile(`NAME\s*=\s*'([^']+)'`)
-	matches := nameRE.FindAllStringSubmatch(tql, -1)
-
-	tagSet := make(map[string]bool)
-	for _, t := range a.knownTags {
-		tagSet[t] = true
-	}
-
-	var invalidTags []string
-	for _, m := range matches {
-		if len(m) > 1 && !tagSet[m[1]] {
-			invalidTags = append(invalidTags, m[1])
-		}
-	}
-
-	// Also check NAME IN ('tag1', 'tag2') patterns
-	inRE := regexp.MustCompile(`NAME\s+IN\s*\(([^)]+)\)`)
-	inMatches := inRE.FindAllStringSubmatch(tql, -1)
-	for _, m := range inMatches {
-		if len(m) > 1 {
-			tagListRE := regexp.MustCompile(`'([^']+)'`)
-			tags := tagListRE.FindAllStringSubmatch(m[1], -1)
-			for _, t := range tags {
-				if len(t) > 1 && !tagSet[t[1]] {
-					invalidTags = append(invalidTags, t[1])
-				}
-			}
-		}
-	}
-
-	if len(invalidTags) == 0 {
-		return ""
-	}
-
-	return fmt.Sprintf(
-		"Error: 존재하지 않는 태그명이 사용되었습니다: %v\n사용 가능한 태그 목록: %v",
-		invalidTags, a.knownTags,
-	)
-}
-
-// timestampInFilename checks if a filename already contains a YYYYMMDD_HHMMSS timestamp.
-var timestampRE = regexp.MustCompile(`\d{8}_\d{6}`)
-
-func timestampInFilename(fn string) bool {
-	return timestampRE.MatchString(fn)
-}
-
-func isAllDigits(s string) bool {
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return len(s) > 0
-}
-
-// aliasMap maps tool name → { aliasKey → canonicalKey }.
-// When the LLM sends a parameter under an alias name, we rename it
-// to the canonical key so that downstream logic (template expansion,
-// dashboard title fix, etc.) always finds the expected key.
-var aliasMap = map[string]map[string]string{
-	"save_tql_file": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename", "tql_path": "filename",
-		"script": "tql_content", "content": "tql_content", "code": "tql_content", "tql_script": "tql_content", "tql": "tql_content",
-	},
-	"execute_tql_script": {
-		"script": "tql_content", "content": "tql_content", "code": "tql_content",
-	},
-	"validate_chart_tql": {
-		"script": "tql_script", "tql_content": "tql_script", "content": "tql_script",
-	},
-	"execute_sql_query": {
-		"sql": "sql_query", "query": "sql_query",
-	},
-	"list_table_tags": {
-		"table": "table_name", "name": "table_name", "table_id": "table_name",
-	},
-	"get_full_document_content": {
-		"file_path": "file_identifier", "doc_name": "file_identifier", "path": "file_identifier", "document_path": "file_identifier", "doc_path": "file_identifier",
-	},
-	"get_document_sections": {
-		"file_path": "file_identifier", "doc_name": "file_identifier", "path": "file_identifier", "document_path": "file_identifier", "doc_path": "file_identifier",
-	},
-	"extract_code_blocks": {
-		"file_path": "file_identifier", "doc_name": "file_identifier", "path": "file_identifier", "document_path": "file_identifier", "doc_path": "file_identifier",
-	},
-	"create_folder": {
-		"name": "folder_name", "path": "folder_name",
-	},
-	"delete_file": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-	},
-	"create_dashboard": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-	},
-	"create_dashboard_with_charts": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-	},
-	"add_chart_to_dashboard": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-		"title": "chart_title", "type": "chart_type", "tql": "tql_path",
-	},
-	"remove_chart_from_dashboard": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-		"chart_id": "panel_id", "id": "panel_id",
-		"chart_title": "panel_title", "title": "panel_title", "chart_name": "panel_title",
-	},
-	"update_chart_in_dashboard": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"chart_id": "panel_id", "id": "panel_id",
-		"chart_title": "panel_title", "title": "panel_title", "chart_name": "panel_title",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-	},
-	"get_dashboard": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-	},
-	"preview_dashboard": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-	},
-	"delete_dashboard": {
-		"path": "filename", "file_path": "filename", "filepath": "filename", "name": "filename", "file_name": "filename",
-		"dashboard_id": "filename", "dashboard": "filename", "dashboard_name": "filename", "dashboard_filename": "filename", "dashboard_file": "filename",
-	},
-}
-
-// canonicalKeys defines the expected parameter names per tool.
-// Any unrecognized key whose value is a string will be matched
-// to a missing canonical key by simple heuristics (contains check).
-var canonicalKeys = map[string][]string{
-	"save_tql_file":                {"filename", "tql_content"},
-	"execute_tql_script":           {"tql_content"},
-	"validate_chart_tql":           {"tql_script"},
-	"execute_sql_query":            {"sql_query"},
-	"list_table_tags":              {"table_name"},
-	"get_full_document_content":    {"file_identifier"},
-	"get_document_sections":        {"file_identifier"},
-	"extract_code_blocks":          {"file_identifier"},
-	"create_folder":                {"folder_name"},
-	"delete_file":                  {"filename"},
-	"create_dashboard":             {"filename"},
-	"create_dashboard_with_charts": {"filename"},
-	"add_chart_to_dashboard":       {"filename"},
-	"remove_chart_from_dashboard":  {"filename"},
-	"update_chart_in_dashboard":    {"filename"},
-	"get_dashboard":                {"filename"},
-	"preview_dashboard":            {"filename"},
-	"delete_dashboard":             {"filename"},
-	"update_connection":            {},
-}
-
-// normalizeArgs renames alias keys to their canonical names in-place.
-// Two-pass: (1) known aliases from aliasMap, (2) fuzzy fallback for unknowns.
-func normalizeArgs(toolName string, args map[string]any) {
-	// Pass 1: explicit alias mapping
-	if mapping, ok := aliasMap[toolName]; ok {
-		for alias, canonical := range mapping {
-			if _, hasCanonical := args[canonical]; hasCanonical {
-				continue
-			}
-			if v, hasAlias := args[alias]; hasAlias {
-				args[canonical] = v
-				delete(args, alias)
-			}
-		}
-	}
-
-	// Strip leading "/" from filename/folder_name — LLM often sends "/FOLDER/file.tql"
-	// but the Machbase Neo API expects relative paths like "FOLDER/file.tql".
-	for _, key := range []string{"filename", "folder_name", "tql_path"} {
-		if v, ok := args[key].(string); ok && strings.HasPrefix(v, "/") {
-			args[key] = strings.TrimLeft(v, "/")
-			fmt.Printf("  [fix] Stripped leading '/' from %s: %q\n", key, args[key])
-		}
-	}
-
-	// Pass 2: fuzzy fallback — if a canonical key is still missing,
-	// try to find an unrecognized arg key that looks like a match.
-	expected, ok := canonicalKeys[toolName]
-	if !ok {
-		return
-	}
-	for _, canonical := range expected {
-		if _, present := args[canonical]; present {
-			continue // already resolved
-		}
-		// Find best candidate among remaining args
-		for key, val := range args {
-			if isKnownParam(key) {
-				continue // skip standard params like "format", "timeout_seconds", etc.
-			}
-			if _, isStr := val.(string); !isStr {
-				continue
-			}
-			// Heuristic: key contains part of canonical or vice versa
-			if fuzzyKeyMatch(key, canonical) {
-				args[canonical] = val
-				delete(args, key)
-				fmt.Printf("  [fix] Fuzzy alias: %q → %q\n", key, canonical)
-				break
-			}
-		}
-	}
-}
-
-// fuzzyKeyMatch returns true if key is likely an alias for canonical.
-func fuzzyKeyMatch(key, canonical string) bool {
-	k := strings.ToLower(strings.ReplaceAll(key, "_", ""))
-	c := strings.ToLower(strings.ReplaceAll(canonical, "_", ""))
-	// Direct substring match
-	if strings.Contains(k, c) || strings.Contains(c, k) {
-		return true
-	}
-	// Partial word match: "file"↔"filename", "tql"↔"tql_content", "sql"↔"sql_query"
-	parts := strings.FieldsFunc(canonical, func(r rune) bool { return r == '_' })
-	for _, part := range parts {
-		if strings.Contains(k, strings.ToLower(part)) {
-			return true
-		}
-	}
-	return false
-}
-
-// isKnownParam returns true for standard parameter names that should not be remapped.
-var knownParams = map[string]bool{
-	"format": true, "timeformat": true, "timezone": true,
-	"timeout_seconds": true, "limit": true,
-	"section_filter": true, "language": true,
-	"host": true, "port": true, "user": true,
-	"time_start": true, "time_end": true, "refresh": true,
-	"charts": true, "chart_title": true, "chart_type": true,
-	"table": true, "tag": true, "column": true, "color": true,
-	"tql_path": true, "user_name": true,
-	"x": true, "y": true, "w": true, "h": true,
-	"smooth": true, "area_style": true, "is_stack": true,
-	"panel_id": true, "panel_title": true,
-	"new_title": true, "new_chart_type": true, "new_table": true,
-	"new_tag": true, "new_column": true, "new_color": true,
-	"title": true, "parent": true,
-	"auto_fix": true, "add_validation_script": true,
-}
-
-func isKnownParam(key string) bool {
-	return knownParams[key]
+	fmt.Printf("[Agent] 리포트 URL 누락 → 자동 추가: %s\n", lastURL)
+	return content + fmt.Sprintf("\n\n[리포트 열기](%s)", lastURL)
 }

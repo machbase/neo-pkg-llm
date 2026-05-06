@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"neo-pkg-llm/agent"
+	"neo-pkg-llm/config"
 	"neo-pkg-llm/llm"
 	"neo-pkg-llm/logger"
 	"neo-pkg-llm/machbase"
@@ -45,12 +46,12 @@ const wsSessionTTL = 30 * time.Minute
 type wsServer struct {
 	upgrader   websocket.Upgrader
 	mc         *machbase.Client
-	cfg        *Config
+	cfg        *config.Config
 	sessions   sync.Map // session_id → *wsSession
 	createLLMFn func(provider, model string) (llm.LLMProvider, error) // override for testing
 }
 
-func newWSServer(mc *machbase.Client, cfg *Config) *wsServer {
+func NewWSServer(mc *machbase.Client, cfg *config.Config) *wsServer {
 	return &wsServer{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -85,7 +86,7 @@ func (s *wsServer) createLLM(userID, provider, model string) (llm.LLMProvider, e
 	cfgCopy := *s.cfg
 	cfgCopy.Provider = provider
 	cfgCopy.Model = model
-	return newLLMSafe(&cfgCopy)
+	return NewLLMSafe(&cfgCopy)
 }
 
 // ServeHTTP handles the WebSocket upgrade.

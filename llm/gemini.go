@@ -14,10 +14,10 @@ import (
 )
 
 // geminiCacheEntry holds a shared cached content resource for a specific model.
+// Only the system prompt is cached; tools are always sent inline.
 type geminiCacheEntry struct {
 	name   string // "cachedContents/xxx" resource name
 	system string // cached system prompt (for change detection)
-	tools  string // cached tools JSON (for change detection)
 }
 
 // geminiCacheStore is a shared cache across all GeminiClient instances, keyed by model name.
@@ -278,39 +278,36 @@ func geminiResponseToMessage(resp *geminiResponse) Message {
 
 // --- Context caching ---
 
-// SetupCache pre-creates a shared cached content resource for the system prompt and tools.
-// The cache is shared across all GeminiClient instances using the same model.
+// SetupCache pre-creates a shared cached content resource for the system prompt only.
+// Tools are always sent inline to support skill switching without cache invalidation.
 func (c *GeminiClient) SetupCache(systemPrompt string, toolDefs []map[string]any) {
 	if systemPrompt == "" {
 		return
 	}
-	tools := toolDefsToGemini(toolDefs)
-	toolsJSON, _ := json.Marshal(tools)
-	toolsKey := string(toolsJSON)
 
 	go func() {
-		if err := c.ensureCache(systemPrompt, tools, toolsKey); err != nil {
+		if err := c.ensureCache(systemPrompt); err != nil {
 			fmt.Printf("[Gemini] cache setup failed (will use normal requests): %v\n", err)
 		}
 	}()
 }
 
-// ensureCache creates or reuses a shared cached content resource.
-func (c *GeminiClient) ensureCache(system string, tools []geminiTool, toolsKey string) error {
+// ensureCache creates or reuses a shared cached content resource (system prompt only).
+func (c *GeminiClient) ensureCache(system string) error {
 	geminiCacheMu.Lock()
 	defer geminiCacheMu.Unlock()
 
 	// Skip if existing cache matches
 	if entry, ok := geminiCacheStore[c.Model]; ok {
-		if entry.system == system && entry.tools == toolsKey {
+		if entry.system == system {
 			fmt.Printf("[Gemini] reusing shared cache: %s (model=%s)\n", entry.name, c.Model)
 			return nil
 		}
-		// Content changed → delete old cache
+		// System prompt changed → delete old cache
 		c.deleteCacheLocked(entry.name)
 	}
 
-	// Build cache creation request
+	// Build cache creation request (system prompt only, no tools)
 	cacheReq := map[string]any{
 		"model": "models/" + c.Model,
 		"systemInstruction": map[string]any{
@@ -319,9 +316,6 @@ func (c *GeminiClient) ensureCache(system string, tools []geminiTool, toolsKey s
 			},
 		},
 		"ttl": "300s",
-	}
-	if len(tools) > 0 {
-		cacheReq["tools"] = tools
 	}
 
 	body, _ := json.Marshal(cacheReq)
@@ -350,9 +344,8 @@ func (c *GeminiClient) ensureCache(system string, tools []geminiTool, toolsKey s
 	geminiCacheStore[c.Model] = &geminiCacheEntry{
 		name:   result.Name,
 		system: system,
-		tools:  toolsKey,
 	}
-	fmt.Printf("[Gemini] shared cache created: %s (model=%s)\n", result.Name, c.Model)
+	fmt.Printf("[Gemini] shared cache created (system only): %s (model=%s)\n", result.Name, c.Model)
 	return nil
 }
 
@@ -376,16 +369,18 @@ func (c *GeminiClient) deleteCacheLocked(name string) {
 	delete(geminiCacheStore, c.Model)
 }
 
-// buildRequest constructs a geminiRequest, using shared cached content when available.
+// buildRequest constructs a geminiRequest, using shared cached content for system prompt.
+// Tools are always sent inline to support skill switching without cache invalidation.
 func (c *GeminiClient) buildRequest(system *geminiContent, contents []geminiContent, tools []geminiTool) geminiRequest {
 	geminiCacheMu.Lock()
 	entry := geminiCacheStore[c.Model]
 	geminiCacheMu.Unlock()
 
 	if entry != nil {
-		// When using cached content, omit systemInstruction and tools (they're in the cache)
+		// Cache holds system prompt only; tools are always inline
 		return geminiRequest{
 			Contents:      contents,
+			Tools:         tools,
 			CachedContent: entry.name,
 		}
 	}

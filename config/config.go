@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"bufio"
@@ -54,12 +54,12 @@ type Config struct {
 	Provider string `json:"-"`
 	Model    string `json:"-"`
 
-	configPath string // internal: path used for Save
+	ConfigPath string `json:"-"` // internal: path used for Save
 }
 
 // --- Default config ---
 
-func defaultConfig() *Config {
+func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
 			Port: "8884",
@@ -102,10 +102,10 @@ func defaultConfig() *Config {
 // --- Load / Save ---
 
 func LoadConfig(path string) *Config {
-	loadDotEnv(".env")
+	LoadDotEnv(".env")
 
-	cfg := defaultConfig()
-	cfg.configPath = path
+	cfg := DefaultConfig()
+	cfg.ConfigPath = path
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -113,17 +113,17 @@ func LoadConfig(path string) *Config {
 		logger.Infof("Config file not found (%s), creating with defaults", path)
 		os.MkdirAll(filepath.Dir(path), 0755)
 		cfg.Save()
-		cfg.applyEnvOverrides()
+		cfg.ApplyEnvOverrides()
 		return cfg
 	}
 
 	if err := json.Unmarshal(data, cfg); err != nil {
 		logger.Infof("Config parse error: %v, using defaults", err)
-		cfg = defaultConfig()
-		cfg.configPath = path
+		cfg = DefaultConfig()
+		cfg.ConfigPath = path
 	}
 
-	cfg.applyEnvOverrides()
+	cfg.ApplyEnvOverrides()
 	return cfg
 }
 
@@ -132,11 +132,11 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.configPath, data, 0644)
+	return os.WriteFile(c.ConfigPath, data, 0644)
 }
 
-// applyEnvOverrides lets environment variables override config.json values.
-func (c *Config) applyEnvOverrides() {
+// ApplyEnvOverrides lets environment variables override config.json values.
+func (c *Config) ApplyEnvOverrides() {
 	if v := os.Getenv("MACHBASE_HOST"); v != "" {
 		c.Machbase.Host = v
 	}
@@ -211,7 +211,7 @@ func (c *Config) ResolveModel() string {
 	if c.Model != "" {
 		return c.Model
 	}
-	models := c.currentModels()
+	models := c.CurrentModels()
 	if len(models) > 0 {
 		return models[0].Name
 	}
@@ -222,7 +222,7 @@ func (c *Config) ResolveModel() string {
 // If found, returns the model_id. Otherwise returns the input as-is (raw model_id).
 func (c *Config) ResolveModelID() string {
 	model := c.ResolveModel()
-	models := c.currentModels()
+	models := c.CurrentModels()
 	for _, m := range models {
 		if strings.EqualFold(m.Name, model) {
 			if m.ModelID != "" {
@@ -249,7 +249,7 @@ func (c *Config) GetAPIKey() string {
 	return ""
 }
 
-func (c *Config) currentModels() []ModelEntry {
+func (c *Config) CurrentModels() []ModelEntry {
 	switch strings.ToLower(c.ResolveProvider()) {
 	case "claude":
 		return c.Claude.Models
@@ -265,8 +265,6 @@ func (c *Config) currentModels() []ModelEntry {
 
 // --- Sensitive field masking ---
 
-// maskSecret masks a secret string, showing first 4 and last 4 chars.
-// e.g. "sk-ant-api03-abcdef...xyz123" → "sk-a********z123"
 func maskSecret(s string) string {
 	if len(s) <= 8 {
 		return "********"
@@ -276,47 +274,62 @@ func maskSecret(s string) string {
 
 // MaskedCopy returns a copy of the config with sensitive fields masked.
 func (c *Config) MaskedCopy() Config {
-	copy := *c
-	if copy.Machbase.Password != "" {
-		copy.Machbase.Password = maskSecret(copy.Machbase.Password)
+	cp := *c
+	if cp.Machbase.Password != "" {
+		cp.Machbase.Password = maskSecret(cp.Machbase.Password)
 	}
-	if copy.Claude.APIKey != "" {
-		copy.Claude.APIKey = maskSecret(copy.Claude.APIKey)
+	if cp.Claude.APIKey != "" {
+		cp.Claude.APIKey = maskSecret(cp.Claude.APIKey)
 	}
-	if copy.ChatGPT.APIKey != "" {
-		copy.ChatGPT.APIKey = maskSecret(copy.ChatGPT.APIKey)
+	if cp.ChatGPT.APIKey != "" {
+		cp.ChatGPT.APIKey = maskSecret(cp.ChatGPT.APIKey)
 	}
-	if copy.Gemini.APIKey != "" {
-		copy.Gemini.APIKey = maskSecret(copy.Gemini.APIKey)
+	if cp.Gemini.APIKey != "" {
+		cp.Gemini.APIKey = maskSecret(cp.Gemini.APIKey)
 	}
-	return copy
+	return cp
 }
 
-// isMasked returns true if the value looks like a masked secret.
-func isMasked(s string) bool {
+// IsMasked returns true if the value looks like a masked secret.
+func IsMasked(s string) bool {
 	return strings.Contains(s, "********")
 }
 
 // RestoreSecrets replaces masked values in the incoming config with
 // the original values from the existing config.
 func (c *Config) RestoreSecrets(existing *Config) {
-	if isMasked(c.Machbase.Password) {
+	if IsMasked(c.Machbase.Password) {
 		c.Machbase.Password = existing.Machbase.Password
 	}
-	if isMasked(c.Claude.APIKey) {
+	if IsMasked(c.Claude.APIKey) {
 		c.Claude.APIKey = existing.Claude.APIKey
 	}
-	if isMasked(c.ChatGPT.APIKey) {
+	if IsMasked(c.ChatGPT.APIKey) {
 		c.ChatGPT.APIKey = existing.ChatGPT.APIKey
 	}
-	if isMasked(c.Gemini.APIKey) {
+	if IsMasked(c.Gemini.APIKey) {
 		c.Gemini.APIKey = existing.Gemini.APIKey
 	}
 }
 
-// --- .env loader (unchanged) ---
+// ValidateConfig checks required fields.
+func ValidateConfig(c *Config) string {
+	switch {
+	case c.Machbase.Host == "":
+		return "machbase.host is required"
+	case c.Machbase.Port == "":
+		return "machbase.port is required"
+	case c.Machbase.User == "":
+		return "machbase.user is required"
+	case c.Machbase.Password == "":
+		return "machbase.password is required"
+	}
+	return ""
+}
 
-func loadDotEnv(path string) {
+// --- .env loader ---
+
+func LoadDotEnv(path string) {
 	f, err := os.Open(path)
 	if err != nil {
 		return

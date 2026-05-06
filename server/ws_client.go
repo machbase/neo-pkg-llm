@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -53,7 +53,7 @@ type wsClient struct {
 	sessions sync.Map // session_id → *session
 }
 
-func newWSClient(url string, llmClient llm.LLMProvider, registry *tools.Registry) *wsClient {
+func NewWSClient(url string, llmClient llm.LLMProvider, registry *tools.Registry) *wsClient {
 	return &wsClient{
 		url:      url,
 		llm:      llmClient,

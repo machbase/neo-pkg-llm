@@ -84,19 +84,30 @@ func ensureOllamaRunning(baseURL string) {
 	fmt.Println("[Ollama] WARNING: Server did not become ready in 15s")
 }
 
-// OllamaSystemPromptTokens is the measured token count of the full system prompt
-// (OllamaSystemPrompt + document catalog + /no_think) on qwen3:8b.
-// Measured via Ollama /api/generate with num_predict=0, num_ctx=40960.
-// Update this value when OllamaSystemPrompt or the document catalog changes.
-const OllamaSystemPromptTokens = 8300
+// Pre-measured num_keep values per skill (Ollama compact segments + catalog, qwen3:8b).
+// Based on OllamaSystemPrompt full = 8300 tokens measured, ratio-scaled per skill.
+var ollamaNumKeepBySkill = map[string]int{
+	"AdvancedAnalysis": 6900,
+	"BasicAnalysis":    6100,
+	"Report":           5500,
+	"DocLookup":        5500,
+}
 
-// SetNumKeep sets num_keep to the pre-measured system prompt token count.
-func (o *OllamaClient) SetNumKeep(systemPrompt string) {
-	if systemPrompt == "" {
+// SetNumKeep sets num_keep based on the active skill name.
+// Falls back to estimation if skill is unknown.
+func (o *OllamaClient) SetNumKeep(skillName string) {
+	if skillName == "" {
+		o.numKeep = 6100 // default to BasicAnalysis
+		fmt.Printf("[Ollama] num_keep set to %d (default)\n", o.numKeep)
 		return
 	}
-	o.numKeep = OllamaSystemPromptTokens
-	fmt.Printf("[Ollama] num_keep set to %d (pre-measured token count)\n", o.numKeep)
+	if v, ok := ollamaNumKeepBySkill[skillName]; ok {
+		o.numKeep = v
+		fmt.Printf("[Ollama] num_keep set to %d (skill: %s)\n", o.numKeep, skillName)
+	} else {
+		o.numKeep = 6100
+		fmt.Printf("[Ollama] num_keep set to %d (unknown skill: %s, using default)\n", o.numKeep, skillName)
+	}
 }
 
 // --- Ollama native API types ---

@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"neo-pkg-llm/agent"
+	"neo-pkg-llm/config"
 	"neo-pkg-llm/llm"
 	"neo-pkg-llm/logger"
 	"neo-pkg-llm/machbase"
@@ -18,7 +19,7 @@ import (
 // machbase client, tool registry, LLM provider, and WebSocket server.
 type Instance struct {
 	name      string
-	cfg       *Config
+	cfg       *config.Config
 	mc        *machbase.Client
 	registry  *tools.Registry
 	llmClient llm.LLMProvider
@@ -28,11 +29,11 @@ type Instance struct {
 }
 
 // NewInstance creates and initializes an Instance from a Config.
-func NewInstance(name string, cfg *Config) (*Instance, error) {
+func NewInstance(name string, cfg *config.Config) (*Instance, error) {
 	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
 
-	llmClient, err := newLLMSafe(cfg)
+	llmClient, err := NewLLMSafe(cfg)
 	if err != nil {
 		logger.Warnf("[Instance:%s] LLM init failed (will report via socket): %v", name, err)
 	}
@@ -45,7 +46,7 @@ func NewInstance(name string, cfg *Config) (*Instance, error) {
 		llmClient: llmClient, // may be nil
 	}
 
-	inst.wsServ = newWSServer(mc, cfg)
+	inst.wsServ = NewWSServer(mc, cfg)
 	go inst.wsServ.sessionReaper()
 
 	inst.mux = http.NewServeMux()
@@ -113,7 +114,7 @@ func (inst *Instance) getClients() (llm.LLMProvider, *tools.Registry) {
 }
 
 func (inst *Instance) restartLLM() error {
-	newClient, err := newLLMSafe(inst.cfg)
+	newClient, err := NewLLMSafe(inst.cfg)
 	if err != nil {
 		return err
 	}

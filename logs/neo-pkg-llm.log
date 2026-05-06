@@ -1,0 +1,923 @@
+2026-04-20 14:13:02.037 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:13:02.058 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-20 14:13:02.058 [INFO ] [Manager] Instance started: joy
+2026-04-20 14:13:02.066 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:13:02.066 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-20 14:13:02.066 [INFO ] [Manager] Instance started: sys
+2026-04-20 14:13:02.066 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-20 14:13:02.066 [INFO ] Configs dir: configs
+2026-04-20 14:13:02.067 [INFO ] Endpoints (master):
+2026-04-20 14:13:02.067 [INFO ]   GET  /health                — Health check
+2026-04-20 14:13:02.067 [INFO ]   GET  /settings              — Settings page
+2026-04-20 14:13:02.067 [INFO ]   GET  /api/instances         — List running instances
+2026-04-20 14:13:02.067 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-20 14:13:02.067 [INFO ]   GET  /api/configs           — List configs
+2026-04-20 14:13:02.067 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-20 14:13:02.067 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-20 14:13:02.067 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-20 14:13:02.067 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-20 14:13:02.067 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-20 14:13:02.067 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-20 14:13:02.067 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-20 14:13:02.067 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-20 14:13:02.067 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-20 14:13:02.067 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-20 14:13:34.539 [INFO ] [WSServer] Connected
+2026-04-20 14:13:34.540 [INFO ] [WSServer] Read error: websocket: close 1006 (abnormal closure): unexpected EOF
+2026-04-20 14:13:34.559 [INFO ] [WSServer] Connected
+2026-04-20 14:13:37.374 [INFO ] [WSServer] Connected
+2026-04-20 14:13:39.104 [INFO ] [WSServer] Connected
+2026-04-20 14:16:07.362 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:16:07.370 [INFO ] [WSServer] New session: sess-1776662018975-o0so6b3 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:16:09.546 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:16:09.554 [INFO ] [WSServer] New session: sess-1776662014527-9favx6h (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:16:11.961 [INFO ] LLM: Gemini (gemini-3.1-flash-lite-preview)
+2026-04-20 14:16:11.975 [INFO ] [WSServer] New session: sess-1776662016622-dpcqpyk (user=sys, gemini/gemini-3.1-flash-lite-preview)
+2026-04-20 14:18:13.535 [INFO ] [WSServer] Session cleared: sess-1776662018975-o0so6b3 (user=sys)
+2026-04-20 14:18:14.711 [INFO ] [WSServer] Session cleared: sess-1776662014527-9favx6h (user=sys)
+2026-04-20 14:18:15.695 [INFO ] [WSServer] Session cleared: sess-1776662016622-dpcqpyk (user=sys)
+2026-04-20 14:18:22.097 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:18:22.106 [INFO ] [WSServer] New session: sess-1776662293535-h7p7rro (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:18:24.792 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:18:24.802 [INFO ] [WSServer] New session: sess-1776662294711-un29m5f (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:18:27.161 [INFO ] LLM: Gemini (gemini-3.1-flash-lite-preview)
+2026-04-20 14:18:27.168 [INFO ] [WSServer] New session: sess-1776662295695-cavb33k (user=sys, gemini/gemini-3.1-flash-lite-preview)
+2026-04-20 14:21:26.494 [INFO ] [WSServer] Session cleared: sess-1776662295695-cavb33k (user=sys)
+2026-04-20 14:21:27.397 [INFO ] [WSServer] Session cleared: sess-1776662294711-un29m5f (user=sys)
+2026-04-20 14:21:28.245 [INFO ] [WSServer] Session cleared: sess-1776662293535-h7p7rro (user=sys)
+2026-04-20 14:21:36.902 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:21:36.910 [INFO ] [WSServer] New session: sess-1776662488245-yt9xq7s (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:21:39.326 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:21:39.335 [INFO ] [WSServer] New session: sess-1776662487397-kzoazxo (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:21:42.118 [INFO ] LLM: Gemini (gemini-3.1-flash-lite-preview)
+2026-04-20 14:21:42.127 [INFO ] [WSServer] New session: sess-1776662486493-a4d48gj (user=sys, gemini/gemini-3.1-flash-lite-preview)
+2026-04-20 14:24:19.843 [INFO ] [WSServer] Session cleared: sess-1776662486493-a4d48gj (user=sys)
+2026-04-20 14:24:21.820 [INFO ] LLM: Gemini (gemini-3.1-flash-lite-preview)
+2026-04-20 14:24:21.827 [INFO ] [WSServer] New session: sess-1776662659843-qpygf0n (user=sys, gemini/gemini-3.1-flash-lite-preview)
+2026-04-20 14:26:16.810 [INFO ] [WSServer] Session cleared: sess-1776662659843-qpygf0n (user=sys)
+2026-04-20 14:26:19.074 [INFO ] LLM: Gemini (gemini-3.1-flash-lite-preview)
+2026-04-20 14:26:19.082 [INFO ] [WSServer] New session: sess-1776662776810-m6qrj3i (user=sys, gemini/gemini-3.1-flash-lite-preview)
+2026-04-20 14:28:12.785 [INFO ] [WSServer] Session cleared: sess-1776662488245-yt9xq7s (user=sys)
+2026-04-20 14:28:14.889 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:28:14.897 [INFO ] [WSServer] New session: sess-1776662892785-vixxx8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:28:16.361 [INFO ] [WSServer] Session cleared: sess-1776662487397-kzoazxo (user=sys)
+2026-04-20 14:28:17.279 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-20 14:28:22.073 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:28:22.085 [INFO ] [WSServer] New session: sess-1776662896361-2ciyrj2 (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:31:48.094 [INFO ] [WSServer] Session cleared: sess-1776662896361-2ciyrj2 (user=sys)
+2026-04-20 14:31:49.863 [INFO ] [WSServer] Session cleared: sess-1776662892785-vixxx8r (user=sys)
+2026-04-20 14:32:45.326 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:32:45.333 [INFO ] [WSServer] New session: sess-1776663109863-1iuwz2e (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:32:47.254 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:32:47.262 [INFO ] [WSServer] New session: sess-1776663108094-uvbkq4m (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:36:42.827 [INFO ] [WSServer] Session cleared: sess-1776663108094-uvbkq4m (user=sys)
+2026-04-20 14:36:43.907 [INFO ] [WSServer] Session cleared: sess-1776663109863-1iuwz2e (user=sys)
+2026-04-20 14:36:56.211 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:36:56.220 [INFO ] [WSServer] New session: sess-1776663403907-lm1ec6l (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:36:58.795 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:36:58.803 [INFO ] [WSServer] New session: sess-1776663402827-j9a16gt (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:42:50.752 [INFO ] [WSServer] Session cleared: sess-1776663402827-j9a16gt (user=sys)
+2026-04-20 14:42:51.623 [INFO ] [WSServer] Session cleared: sess-1776663403907-lm1ec6l (user=sys)
+2026-04-20 14:43:22.216 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:43:22.224 [INFO ] [WSServer] New session: sess-1776663771623-k79ex5k (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:43:24.783 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:43:24.792 [INFO ] [WSServer] New session: sess-1776663770752-c155jm8 (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:44:36.990 [INFO ] [WSServer] Session cleared: sess-1776663770752-c155jm8 (user=sys)
+2026-04-20 14:44:40.272 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:44:40.281 [INFO ] [WSServer] New session: sess-1776663876990-qrc7qvl (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:45:20.528 [INFO ] [WSServer] Session cleared: sess-1776663876990-qrc7qvl (user=sys)
+2026-04-20 14:45:22.422 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:45:22.430 [INFO ] [WSServer] New session: sess-1776663920528-60uy1b8 (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:45:24.310 [INFO ] [WSServer] Session cleared: sess-1776663771623-k79ex5k (user=sys)
+2026-04-20 14:45:26.054 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:45:26.062 [INFO ] [WSServer] New session: sess-1776663924310-cadro7b (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:47:03.901 [INFO ] [WSServer] Session cleared: sess-1776663920528-60uy1b8 (user=sys)
+2026-04-20 14:47:05.077 [INFO ] [WSServer] Session cleared: sess-1776663924310-cadro7b (user=sys)
+2026-04-20 14:47:11.029 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:47:11.036 [INFO ] [WSServer] New session: sess-1776664025077-sjnvpr0 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:47:13.173 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:47:13.184 [INFO ] [WSServer] New session: sess-1776664023900-vxdqkzp (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:50:07.222 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:50:07.252 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-20 14:50:07.252 [INFO ] [Manager] Instance started: joy
+2026-04-20 14:50:07.259 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:50:07.259 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-20 14:50:07.259 [INFO ] [Manager] Instance started: sys
+2026-04-20 14:50:07.259 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-20 14:50:07.259 [INFO ] Configs dir: configs
+2026-04-20 14:50:07.260 [INFO ] Endpoints (master):
+2026-04-20 14:50:07.260 [INFO ]   GET  /health                — Health check
+2026-04-20 14:50:07.260 [INFO ]   GET  /settings              — Settings page
+2026-04-20 14:50:07.260 [INFO ]   GET  /api/instances         — List running instances
+2026-04-20 14:50:07.260 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-20 14:50:07.260 [INFO ]   GET  /api/configs           — List configs
+2026-04-20 14:50:07.260 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-20 14:50:07.260 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-20 14:50:07.260 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-20 14:50:07.260 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-20 14:50:07.260 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-20 14:50:07.260 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-20 14:50:07.260 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-20 14:50:07.260 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-20 14:50:07.260 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-20 14:50:07.260 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-20 14:50:11.645 [INFO ] [WSServer] Connected
+2026-04-20 14:50:13.155 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:50:13.163 [INFO ] [WSServer] New session: sess-1776664210187-0sdkkfa (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:50:27.620 [INFO ] [WSServer] Connected
+2026-04-20 14:50:30.564 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:50:30.574 [INFO ] [WSServer] New session: sess-1776664228986-j4yur2c (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 14:51:35.978 [INFO ] [WSServer] Session cleared: sess-1776664210187-0sdkkfa (user=sys)
+2026-04-20 14:51:37.138 [INFO ] [WSServer] Session cleared: sess-1776664228986-j4yur2c (user=sys)
+2026-04-20 14:51:54.010 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 14:51:54.018 [INFO ] [WSServer] New session: sess-1776664295978-ka85141 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 14:51:57.618 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 14:51:57.625 [INFO ] [WSServer] New session: sess-1776664297138-im9ni68 (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:06:25.104 [INFO ] [WSServer] Session cleared: sess-1776664297138-im9ni68 (user=sys)
+2026-04-20 15:06:26.208 [INFO ] [WSServer] Session cleared: sess-1776664295978-ka85141 (user=sys)
+2026-04-20 15:06:35.040 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 15:06:35.048 [INFO ] [WSServer] New session: sess-1776665186208-qarp2qy (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 15:06:37.448 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 15:06:37.455 [INFO ] [WSServer] New session: sess-1776665185104-g850on4 (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:08:06.008 [INFO ] [WSServer] Session cleared: sess-1776665186208-qarp2qy (user=sys)
+2026-04-20 15:08:07.471 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 15:08:07.479 [INFO ] [WSServer] New session: sess-1776665286007-9iiq5je (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 15:08:09.415 [INFO ] [WSServer] Session cleared: sess-1776665185104-g850on4 (user=sys)
+2026-04-20 15:08:11.415 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 15:08:11.424 [INFO ] [WSServer] New session: sess-1776665289415-q35du0j (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:09:59.622 [INFO ] [WSServer] Session cleared: sess-1776665286007-9iiq5je (user=sys)
+2026-04-20 15:10:01.222 [INFO ] [WSServer] Session cleared: sess-1776665289415-q35du0j (user=sys)
+2026-04-20 15:10:05.967 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 15:10:05.976 [INFO ] [WSServer] New session: sess-1776665399622-bcwsmfu (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 15:10:13.807 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 15:10:13.817 [INFO ] [WSServer] New session: sess-1776665401222-2su8y6l (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:10:39.142 [INFO ] [WSServer] Continuing session: sess-1776665399622-bcwsmfu (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 15:10:41.398 [INFO ] [WSServer] Continuing session: sess-1776665401222-2su8y6l (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:11:15.301 [INFO ] [WSServer] Continuing session: sess-1776665401222-2su8y6l (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:11:35.581 [INFO ] [WSServer] Stopped session: sess-1776665401222-2su8y6l (user=sys)
+2026-04-20 15:11:37.733 [INFO ] [WSServer] Session cleared: sess-1776665401222-2su8y6l (user=sys)
+2026-04-20 15:11:39.541 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 15:11:39.549 [INFO ] [WSServer] New session: sess-1776665497733-qixf37d (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:12:13.213 [INFO ] [WSServer] Continuing session: sess-1776665497733-qixf37d (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:13:35.036 [INFO ] [WSServer] Session cleared: sess-1776665497733-qixf37d (user=sys)
+2026-04-20 15:13:37.413 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 15:13:37.422 [INFO ] [WSServer] New session: sess-1776665615036-611u0qj (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:13:49.684 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-20 15:13:50.223 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-20 15:15:44.370 [INFO ] [WSServer] Connected
+2026-04-20 15:15:44.370 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-20 15:15:44.390 [INFO ] [WSServer] Connected
+2026-04-20 15:15:58.212 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-20 15:15:58.220 [INFO ] [WSServer] New session: sess-1776665744357-3q8d2q4 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 15:16:51.980 [INFO ] [WSServer] Continuing session: sess-1776665744357-3q8d2q4 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-20 15:17:23.979 [INFO ] [WSServer] Connected
+2026-04-20 15:17:31.115 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-04-20 15:17:31.123 [INFO ] [WSServer] New session: sess-1776665843541-nk4pieg (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:17:57.674 [INFO ] [WSServer] Continuing session: sess-1776665843541-nk4pieg (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:18:22.794 [INFO ] [WSServer] Continuing session: sess-1776665843541-nk4pieg (user=sys, chatgpt/gpt-4o-mini-2024-07-18)
+2026-04-20 15:19:29.628 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-20 15:45:07.260 [INFO ] [WSServer] Session expired: sess-1776665615036-611u0qj (user=sys)
+2026-04-20 15:45:07.260 [INFO ] [WSServer] Session expired: sess-1776665399622-bcwsmfu (user=sys)
+2026-04-20 15:50:07.260 [INFO ] [WSServer] Session expired: sess-1776665744357-3q8d2q4 (user=sys)
+2026-04-20 15:50:07.260 [INFO ] [WSServer] Session expired: sess-1776665843541-nk4pieg (user=sys)
+2026-04-20 15:50:07.260 [INFO ] [WSServer] Read error: read tcp 192.168.1.238:8884->192.168.1.238:63006: use of closed network connection
+2026-04-20 15:57:58.232 [INFO ] [WSServer] Connected
+2026-04-21 12:26:13.698 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-21 15:07:30.411 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:07:30.430 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:07:30.430 [INFO ] [Manager] Instance started: joy
+2026-04-21 15:07:30.437 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:07:30.437 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:07:30.437 [INFO ] [Manager] Instance started: sys
+2026-04-21 15:07:30.437 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 15:07:30.437 [INFO ] Configs dir: configs
+2026-04-21 15:07:30.439 [INFO ] Endpoints (master):
+2026-04-21 15:07:30.439 [INFO ]   GET  /health                — Health check
+2026-04-21 15:07:30.439 [INFO ]   GET  /settings              — Settings page
+2026-04-21 15:07:30.439 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 15:07:30.439 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 15:07:30.439 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 15:07:30.439 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 15:07:30.439 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 15:07:30.439 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 15:07:30.439 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 15:07:30.439 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 15:07:30.439 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 15:07:30.439 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 15:07:30.439 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 15:07:30.439 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 15:07:30.439 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 15:07:36.470 [INFO ] [WSServer] Connected
+2026-04-21 15:07:36.473 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-21 15:07:36.483 [INFO ] [WSServer] Connected
+2026-04-21 15:07:46.186 [INFO ] LLM: Ollama (qwen3.5:9b) at http://192.168.1.238:11434
+2026-04-21 15:07:48.318 [INFO ] [WSServer] New session: sess-1776751656466-fvgjbrj (user=sys, ollama/qwen3.5:9b)
+2026-04-21 15:09:06.355 [INFO ] [WSServer] Continuing session: sess-1776751656466-fvgjbrj (user=sys, ollama/qwen3.5:9b)
+2026-04-21 15:21:28.030 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:21:28.050 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:21:28.050 [INFO ] [Manager] Instance started: joy
+2026-04-21 15:21:28.057 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:21:28.057 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:21:28.057 [INFO ] [Manager] Instance started: sys
+2026-04-21 15:21:28.058 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 15:21:28.058 [INFO ] Configs dir: configs
+2026-04-21 15:21:28.058 [INFO ] Endpoints (master):
+2026-04-21 15:21:28.058 [INFO ]   GET  /health                — Health check
+2026-04-21 15:21:28.058 [INFO ]   GET  /settings              — Settings page
+2026-04-21 15:21:28.058 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 15:21:28.058 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 15:21:28.058 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 15:21:28.058 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 15:21:28.058 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 15:21:28.058 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 15:21:28.058 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 15:21:28.058 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 15:21:28.058 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 15:21:28.058 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 15:21:28.058 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 15:21:28.058 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 15:21:28.059 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 15:23:30.819 [INFO ] [WSServer] Connected
+2026-04-21 15:23:35.549 [INFO ] LLM: Ollama (qwen3.5:9b) at http://192.168.1.238:11434
+2026-04-21 15:23:37.864 [INFO ] [WSServer] New session: sess-1776751656466-fvgjbrj (user=sys, ollama/qwen3.5:9b)
+2026-04-21 15:41:12.726 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:41:12.745 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:41:12.745 [INFO ] [Manager] Instance started: joy
+2026-04-21 15:41:12.752 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:41:12.752 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:41:12.752 [INFO ] [Manager] Instance started: sys
+2026-04-21 15:41:12.752 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 15:41:12.752 [INFO ] Configs dir: configs
+2026-04-21 15:41:12.752 [INFO ] Endpoints (master):
+2026-04-21 15:41:12.752 [INFO ]   GET  /health                — Health check
+2026-04-21 15:41:12.753 [INFO ]   GET  /settings              — Settings page
+2026-04-21 15:41:12.753 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 15:41:12.753 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 15:41:12.753 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 15:41:12.753 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 15:41:12.753 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 15:41:12.753 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 15:41:12.753 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 15:41:12.753 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 15:41:12.753 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 15:41:12.753 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 15:41:12.753 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 15:41:12.753 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 15:41:12.753 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 15:41:18.848 [INFO ] [WSServer] Connected
+2026-04-21 15:41:18.850 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-21 15:41:18.869 [INFO ] [WSServer] Connected
+2026-04-21 15:41:24.868 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:41:24.877 [INFO ] [WSServer] New session: sess-1776753678844-9cy8i8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:41:38.924 [INFO ] [WSServer] Continuing session: sess-1776753678844-9cy8i8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:41:58.028 [INFO ] [WSServer] Continuing session: sess-1776753678844-9cy8i8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:42:19.748 [INFO ] [WSServer] Continuing session: sess-1776753678844-9cy8i8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:46:43.414 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:46:43.433 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:46:43.433 [INFO ] [Manager] Instance started: joy
+2026-04-21 15:46:43.441 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:46:43.441 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:46:43.441 [INFO ] [Manager] Instance started: sys
+2026-04-21 15:46:43.441 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 15:46:43.441 [INFO ] Configs dir: configs
+2026-04-21 15:46:43.442 [INFO ] Endpoints (master):
+2026-04-21 15:46:43.442 [INFO ]   GET  /health                — Health check
+2026-04-21 15:46:43.442 [INFO ]   GET  /settings              — Settings page
+2026-04-21 15:46:43.442 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 15:46:43.442 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 15:46:43.442 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 15:46:43.442 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 15:46:43.442 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 15:46:43.442 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 15:46:43.442 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 15:46:43.442 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 15:46:43.442 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 15:46:43.442 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 15:46:43.442 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 15:46:43.442 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 15:46:43.443 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 15:46:46.300 [INFO ] [WSServer] Connected
+2026-04-21 15:46:57.148 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:46:57.155 [INFO ] [WSServer] New session: sess-1776753678844-9cy8i8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:46:57.163 [INFO ] [Orchestrator] Stage 1: Data Discovery
+2026-04-21 15:46:57.170 [INFO ] [SubAgent] Starting task: 다음 요청에 대해 테이블 구조, 태그 목록, 통계(COUNT/AVG/MIN/MAX), 시간 범위(MI... (총 231자)
+2026-04-21 15:48:48.821 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:48:48.840 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:48:48.840 [INFO ] [Manager] Instance started: joy
+2026-04-21 15:48:48.848 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:48:48.848 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:48:48.848 [INFO ] [Manager] Instance started: sys
+2026-04-21 15:48:48.848 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 15:48:48.849 [INFO ] Configs dir: configs
+2026-04-21 15:48:48.849 [INFO ] Endpoints (master):
+2026-04-21 15:48:48.849 [INFO ]   GET  /health                — Health check
+2026-04-21 15:48:48.849 [INFO ]   GET  /settings              — Settings page
+2026-04-21 15:48:48.849 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 15:48:48.849 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 15:48:48.849 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 15:48:48.849 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 15:48:48.849 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 15:48:48.849 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 15:48:48.849 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 15:48:48.849 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 15:48:48.849 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 15:48:48.849 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 15:48:48.849 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 15:48:48.849 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 15:48:48.849 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 15:48:55.996 [INFO ] [WSServer] Connected
+2026-04-21 15:48:57.939 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:48:57.947 [INFO ] [WSServer] New session: sess-1776753678844-9cy8i8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:48:57.954 [INFO ] [Orchestrator] Stage 1: Data Discovery
+2026-04-21 15:48:57.960 [INFO ] [SubAgent] Starting task: 다음 요청에 대해 테이블 구조, 태그 목록, 통계(COUNT/AVG/MIN/MAX), 시간 범위(MI... (총 231자)
+2026-04-21 15:49:17.073 [INFO ] [Orchestrator] Stage 1 complete: 완벽합니다! 심층 분석 대시보드를 위한 모든 데이터를 수집했습니다. JSON 형식으로 반환하겠습니다.
+
+```json
+{
+  "summary": "SILVER 테이블 심층 분석 대시보... (총 4227자)
+2026-04-21 15:49:17.073 [INFO ] [Orchestrator] Stage 2: TQL Generation
+2026-04-21 15:49:17.078 [INFO ] [SubAgent] Starting task: 다음 데이터 정보를 바탕으로 해당 유형의 모든 TQL 템플릿을 저장하세요.
+�... (총 622자)
+2026-04-21 15:49:36.311 [INFO ] [Orchestrator] Stage 2 complete: 5 artifacts
+2026-04-21 15:49:36.311 [INFO ] [Orchestrator] Stage 3: Dashboard Assembly
+2026-04-21 15:49:36.316 [INFO ] [SubAgent] Starting task: 다음 TQL 파일들로 대시보드를 생성하세요.
+TQL 파일: ["","","","",""]
+시간 범위:... (총 614자)
+2026-04-21 15:49:40.357 [INFO ] [Orchestrator] Stage 3 complete
+2026-04-21 15:51:02.765 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:51:02.785 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:51:02.785 [INFO ] [Manager] Instance started: joy
+2026-04-21 15:51:02.792 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:51:02.792 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:51:02.792 [INFO ] [Manager] Instance started: sys
+2026-04-21 15:51:02.792 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 15:51:02.792 [INFO ] Configs dir: configs
+2026-04-21 15:51:02.792 [INFO ] Endpoints (master):
+2026-04-21 15:51:02.792 [INFO ]   GET  /health                — Health check
+2026-04-21 15:51:02.792 [INFO ]   GET  /settings              — Settings page
+2026-04-21 15:51:02.792 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 15:51:02.793 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 15:51:02.793 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 15:51:02.793 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 15:51:02.793 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 15:51:02.793 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 15:51:02.793 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 15:51:02.793 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 15:51:02.793 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 15:51:02.793 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 15:51:02.793 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 15:51:02.793 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 15:51:02.793 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 15:51:17.557 [INFO ] [WSServer] Connected
+2026-04-21 15:51:19.587 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:51:19.594 [INFO ] [WSServer] New session: sess-1776753678844-9cy8i8r (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:52:08.195 [INFO ] [WSServer] Stopped session: sess-1776753678844-9cy8i8r (user=sys)
+2026-04-21 15:54:18.263 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:54:18.284 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:54:18.284 [INFO ] [Manager] Instance started: joy
+2026-04-21 15:54:18.291 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:54:18.291 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 15:54:18.292 [INFO ] [Manager] Instance started: sys
+2026-04-21 15:54:18.292 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 15:54:18.292 [INFO ] Configs dir: configs
+2026-04-21 15:54:18.292 [INFO ] Endpoints (master):
+2026-04-21 15:54:18.292 [INFO ]   GET  /health                — Health check
+2026-04-21 15:54:18.292 [INFO ]   GET  /settings              — Settings page
+2026-04-21 15:54:18.292 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 15:54:18.292 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 15:54:18.292 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 15:54:18.292 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 15:54:18.292 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 15:54:18.292 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 15:54:18.292 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 15:54:18.292 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 15:54:18.292 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 15:54:18.292 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 15:54:18.292 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 15:54:18.292 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 15:54:18.293 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 15:54:21.613 [INFO ] [WSServer] Connected
+2026-04-21 15:54:27.875 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 15:54:27.882 [INFO ] [WSServer] New session: sess-1776754465963-ov7whp9 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:55:06.708 [INFO ] [WSServer] Continuing session: sess-1776754465963-ov7whp9 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 15:57:03.963 [INFO ] [WSServer] Session cleared: sess-1776754465963-ov7whp9 (user=sys)
+2026-04-21 15:57:11.804 [INFO ] LLM: Ollama (qwen3.5:9b) at http://192.168.1.238:11434
+2026-04-21 15:57:14.142 [INFO ] [WSServer] New session: sess-1776754623963-940iwew (user=sys, ollama/qwen3.5:9b)
+2026-04-21 16:07:08.518 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:07:08.537 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:07:08.539 [INFO ] [Manager] Instance started: joy
+2026-04-21 16:07:08.547 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:07:08.547 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:07:08.547 [INFO ] [Manager] Instance started: sys
+2026-04-21 16:07:08.547 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 16:07:08.547 [INFO ] Configs dir: configs
+2026-04-21 16:07:08.547 [INFO ] Endpoints (master):
+2026-04-21 16:07:08.547 [INFO ]   GET  /health                — Health check
+2026-04-21 16:07:08.548 [INFO ]   GET  /settings              — Settings page
+2026-04-21 16:07:08.548 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 16:07:08.548 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 16:07:08.548 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 16:07:08.548 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 16:07:08.548 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 16:07:08.548 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 16:07:08.548 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 16:07:08.548 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 16:07:08.548 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 16:07:08.548 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 16:07:08.548 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 16:07:08.548 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 16:07:08.548 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 16:07:13.469 [INFO ] [WSServer] Connected
+2026-04-21 16:07:15.877 [INFO ] LLM: Ollama (qwen3.5:9b) at http://192.168.1.238:11434
+2026-04-21 16:07:18.215 [INFO ] [WSServer] New session: sess-1776754623963-940iwew (user=sys, ollama/qwen3.5:9b)
+2026-04-21 16:07:50.835 [INFO ] [WSServer] Stopped session: sess-1776754623963-940iwew (user=sys)
+2026-04-21 16:07:51.627 [INFO ] [WSServer] Session cleared: sess-1776754623963-940iwew (user=sys)
+2026-04-21 16:07:53.652 [INFO ] LLM: Ollama (qwen3.5:9b) at http://192.168.1.238:11434
+2026-04-21 16:07:55.362 [INFO ] [WSServer] New session: sess-1776755271627-n8e0ra9 (user=sys, ollama/qwen3.5:9b)
+2026-04-21 16:08:12.427 [INFO ] [WSServer] Stopped session: sess-1776755271627-n8e0ra9 (user=sys)
+2026-04-21 16:08:26.893 [INFO ] [WSServer] Continuing session: sess-1776755271627-n8e0ra9 (user=sys, ollama/qwen3.5:9b)
+2026-04-21 16:08:45.293 [INFO ] [WSServer] Continuing session: sess-1776755271627-n8e0ra9 (user=sys, ollama/qwen3.5:9b)
+2026-04-21 16:10:49.035 [INFO ] [WSServer] Session cleared: sess-1776755271627-n8e0ra9 (user=sys)
+2026-04-21 16:11:01.173 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:11:01.180 [INFO ] [WSServer] New session: sess-1776755449035-zswf116 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 16:11:41.299 [INFO ] [WSServer] Session cleared: sess-1776755449035-zswf116 (user=sys)
+2026-04-21 16:11:45.261 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:11:45.270 [INFO ] [WSServer] New session: sess-1776755501299-4ia5uj1 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 16:11:52.157 [INFO ] [WSServer] Continuing session: sess-1776755501299-4ia5uj1 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 16:12:20.797 [INFO ] [WSServer] Continuing session: sess-1776755501299-4ia5uj1 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 16:12:56.165 [INFO ] [WSServer] Continuing session: sess-1776755501299-4ia5uj1 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 16:17:23.220 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:17:23.240 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:17:23.240 [INFO ] [Manager] Instance started: joy
+2026-04-21 16:17:23.248 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:17:23.248 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:17:23.248 [INFO ] [Manager] Instance started: sys
+2026-04-21 16:17:23.248 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 16:17:23.248 [INFO ] Configs dir: configs
+2026-04-21 16:17:23.248 [INFO ] Endpoints (master):
+2026-04-21 16:17:23.248 [INFO ]   GET  /health                — Health check
+2026-04-21 16:17:23.248 [INFO ]   GET  /settings              — Settings page
+2026-04-21 16:17:23.248 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 16:17:23.248 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 16:17:23.248 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 16:17:23.248 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 16:17:23.248 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 16:17:23.248 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 16:17:23.248 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 16:17:23.249 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 16:17:23.249 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 16:17:23.249 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 16:17:23.249 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 16:17:23.249 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 16:17:23.249 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 16:17:30.413 [INFO ] [WSServer] Connected
+2026-04-21 16:17:31.379 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:17:31.387 [INFO ] [WSServer] New session: sess-1776755849387-qniq4a0 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-21 16:19:46.019 [INFO ] [WSServer] Session cleared: sess-1776755849387-qniq4a0 (user=sys)
+2026-04-21 16:19:47.955 [INFO ] LLM: Ollama (qwen3.5:9b) at http://192.168.1.238:11434
+2026-04-21 16:19:50.217 [INFO ] [WSServer] New session: sess-1776755986019-3z1a2l8 (user=sys, ollama/qwen3.5:9b)
+2026-04-21 16:49:09.678 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:49:09.698 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:49:09.698 [INFO ] [Manager] Instance started: joy
+2026-04-21 16:49:09.704 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:49:09.704 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:49:09.704 [INFO ] [Manager] Instance started: sys
+2026-04-21 16:49:09.704 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 16:49:09.704 [INFO ] Configs dir: configs
+2026-04-21 16:49:09.704 [INFO ] Endpoints (master):
+2026-04-21 16:49:09.706 [INFO ]   GET  /health                — Health check
+2026-04-21 16:49:09.706 [INFO ]   GET  /settings              — Settings page
+2026-04-21 16:49:09.706 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 16:49:09.706 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 16:49:09.706 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 16:49:09.706 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 16:49:09.706 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 16:49:09.706 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 16:49:09.706 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 16:49:09.706 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 16:49:09.706 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 16:49:09.706 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 16:49:09.706 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 16:49:09.706 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 16:49:09.706 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 16:49:09.708 [ERROR] listen tcp :8884: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+2026-04-21 16:49:48.468 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:49:48.488 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:49:48.488 [INFO ] [Manager] Instance started: joy
+2026-04-21 16:49:48.495 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-21 16:49:48.495 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-21 16:49:48.495 [INFO ] [Manager] Instance started: sys
+2026-04-21 16:49:48.495 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-21 16:49:48.495 [INFO ] Configs dir: configs
+2026-04-21 16:49:48.495 [INFO ] Endpoints (master):
+2026-04-21 16:49:48.497 [INFO ]   GET  /health                — Health check
+2026-04-21 16:49:48.497 [INFO ]   GET  /settings              — Settings page
+2026-04-21 16:49:48.497 [INFO ]   GET  /api/instances         — List running instances
+2026-04-21 16:49:48.497 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-21 16:49:48.497 [INFO ]   GET  /api/configs           — List configs
+2026-04-21 16:49:48.497 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-21 16:49:48.497 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-21 16:49:48.497 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-21 16:49:48.497 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-21 16:49:48.497 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-21 16:49:48.497 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-21 16:49:48.497 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-21 16:49:48.497 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-21 16:49:48.497 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-21 16:49:48.497 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-21 16:49:55.755 [INFO ] [WSServer] Connected
+2026-04-21 16:49:55.755 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-21 16:49:55.774 [INFO ] [WSServer] Connected
+2026-04-21 16:50:10.286 [INFO ] LLM: Ollama (qwen3.5:9b) at http://192.168.1.238:11434
+2026-04-21 16:50:12.566 [INFO ] [WSServer] New session: sess-1776757795741-hekqa61 (user=sys, ollama/qwen3.5:9b)
+2026-04-22 08:41:14.717 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-22 08:41:14.738 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-22 08:41:14.738 [INFO ] [Manager] Instance started: joy
+2026-04-22 08:41:14.746 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-22 08:41:14.746 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-22 08:41:14.746 [INFO ] [Manager] Instance started: sys
+2026-04-22 08:41:14.746 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-22 08:41:14.746 [INFO ] Configs dir: configs
+2026-04-22 08:41:14.746 [INFO ] Endpoints (master):
+2026-04-22 08:41:14.746 [INFO ]   GET  /health                — Health check
+2026-04-22 08:41:14.746 [INFO ]   GET  /settings              — Settings page
+2026-04-22 08:41:14.746 [INFO ]   GET  /api/instances         — List running instances
+2026-04-22 08:41:14.746 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-22 08:41:14.746 [INFO ]   GET  /api/configs           — List configs
+2026-04-22 08:41:14.746 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-22 08:41:14.746 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-22 08:41:14.747 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-22 08:41:14.747 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-22 08:41:14.747 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-22 08:41:14.747 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-22 08:41:14.747 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-22 08:41:14.747 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-22 08:41:14.747 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-22 08:41:14.747 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-22 08:41:56.629 [INFO ] [WSServer] Connected
+2026-04-22 08:41:56.634 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-04-22 08:41:56.641 [INFO ] [WSServer] Connected
+2026-04-22 08:44:26.089 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-22 08:44:26.097 [INFO ] [WSServer] New session: sess-1776814916614-82hp90d (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-22 08:44:46.105 [INFO ] [WSServer] Continuing session: sess-1776814916614-82hp90d (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-22 09:16:14.773 [INFO ] [WSServer] Session expired: sess-1776814916614-82hp90d (user=sys)
+2026-04-22 09:16:14.773 [INFO ] [WSServer] Read error: read tcp 192.168.1.238:8884->192.168.1.238:64786: use of closed network connection
+2026-04-22 09:52:10.244 [INFO ] [WSServer] Connected
+2026-04-22 09:52:41.297 [INFO ] [WSServer] Connected
+2026-04-22 09:55:52.460 [INFO ] [WSServer] Connected
+2026-04-27 11:54:45.791 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 11:54:45.811 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-27 11:54:45.811 [INFO ] [Manager] Instance started: joy
+2026-04-27 11:54:45.819 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 11:54:45.819 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-27 11:54:45.819 [INFO ] [Manager] Instance started: sys
+2026-04-27 11:54:45.819 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-27 11:54:45.819 [INFO ] Configs dir: configs
+2026-04-27 11:54:45.819 [INFO ] Endpoints (master):
+2026-04-27 11:54:45.819 [INFO ]   GET  /health                — Health check
+2026-04-27 11:54:45.819 [INFO ]   GET  /settings              — Settings page
+2026-04-27 11:54:45.819 [INFO ]   GET  /api/instances         — List running instances
+2026-04-27 11:54:45.819 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-27 11:54:45.820 [INFO ]   GET  /api/configs           — List configs
+2026-04-27 11:54:45.820 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-27 11:54:45.820 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-27 11:54:45.820 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-27 11:54:45.820 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-27 11:54:45.820 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-27 11:54:45.820 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-27 11:54:45.820 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-27 11:54:45.820 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-27 11:54:45.820 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-27 11:54:45.820 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-27 11:55:31.023 [INFO ] [WSServer] Connected
+2026-04-27 11:55:31.023 [INFO ] [WSServer] Read error: read tcp 192.168.1.238:8884->192.168.1.238:50765: wsarecv: An established connection was aborted by the software in your host machine.
+2026-04-27 11:55:31.034 [INFO ] [WSServer] Connected
+2026-04-27 11:55:38.640 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 11:55:38.649 [INFO ] [WSServer] New session: sess-1777258531017-edb0lkk (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 11:55:47.297 [INFO ] [WSServer] Continuing session: sess-1777258531017-edb0lkk (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 11:55:58.160 [INFO ] [WSServer] Continuing session: sess-1777258531017-edb0lkk (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 11:56:11.504 [INFO ] [WSServer] Continuing session: sess-1777258531017-edb0lkk (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:00:13.629 [INFO ] [WSServer] Session cleared: sess-1777258531017-edb0lkk (user=sys)
+2026-04-27 12:00:16.188 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 12:00:16.195 [INFO ] [WSServer] New session: sess-1777258813629-evrodu3 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:00:23.524 [INFO ] [WSServer] Session cleared: sess-1777258813629-evrodu3 (user=sys)
+2026-04-27 12:00:28.164 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 12:00:28.172 [INFO ] [WSServer] New session: sess-1777258823524-08kssdd (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:03:20.875 [INFO ] [WSServer] Continuing session: sess-1777258823524-08kssdd (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:06:05.297 [INFO ] [WSServer] Session cleared: sess-1777258823524-08kssdd (user=sys)
+2026-04-27 12:06:06.832 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 12:06:06.842 [INFO ] [WSServer] New session: sess-1777259165296-rvzodur (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:06:51.601 [INFO ] [WSServer] Continuing session: sess-1777259165296-rvzodur (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:12:54.448 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 12:12:54.472 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-27 12:12:54.472 [INFO ] [Manager] Instance started: joy
+2026-04-27 12:12:54.479 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 12:12:54.479 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-04-27 12:12:54.479 [INFO ] [Manager] Instance started: sys
+2026-04-27 12:12:54.480 [INFO ] Agentic Loop Go server starting on :8884
+2026-04-27 12:12:54.480 [INFO ] Configs dir: configs
+2026-04-27 12:12:54.480 [INFO ] Endpoints (master):
+2026-04-27 12:12:54.480 [INFO ]   GET  /health                — Health check
+2026-04-27 12:12:54.480 [INFO ]   GET  /settings              — Settings page
+2026-04-27 12:12:54.480 [INFO ]   GET  /api/instances         — List running instances
+2026-04-27 12:12:54.480 [INFO ]   POST /api/configs           — Save config + start instance
+2026-04-27 12:12:54.481 [INFO ]   GET  /api/configs           — List configs
+2026-04-27 12:12:54.481 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-04-27 12:12:54.481 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-04-27 12:12:54.481 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-04-27 12:12:54.481 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-04-27 12:12:54.481 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-04-27 12:12:54.481 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-04-27 12:12:54.481 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-04-27 12:12:54.481 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-04-27 12:12:54.481 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-04-27 12:12:54.481 [INFO ]   GET  /{name}/health           — Instance health
+2026-04-27 12:12:57.030 [INFO ] [WSServer] Connected
+2026-04-27 12:12:58.734 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 12:12:58.742 [INFO ] [WSServer] New session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:13:04.397 [INFO ] [WSServer] Continuing session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:13:13.021 [INFO ] [WSServer] Continuing session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:13:25.917 [INFO ] [WSServer] Continuing session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:14:10.179 [INFO ] [WSServer] Continuing session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:16:35.794 [INFO ] [WSServer] Continuing session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 12:47:54.480 [INFO ] [WSServer] Session expired: sess-1777259575916-fib6fcj (user=sys)
+2026-04-27 12:47:54.480 [INFO ] [WSServer] Read error: read tcp 192.168.1.238:8884->192.168.1.238:63273: use of closed network connection
+2026-04-27 15:21:40.052 [INFO ] [WSServer] Connected
+2026-04-27 16:58:51.216 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-04-27 16:58:51.224 [INFO ] [WSServer] New session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 17:00:56.263 [INFO ] [WSServer] Continuing session: sess-1777259575916-fib6fcj (user=sys, claude/claude-haiku-4-5-20251001)
+2026-04-27 17:32:58.793 [INFO ] [WSServer] Session expired: sess-1777259575916-fib6fcj (user=sys)
+2026-04-27 17:32:58.793 [INFO ] [WSServer] Read error: read tcp 192.168.1.238:8884->192.168.1.238:60585: use of closed network connection
+2026-04-28 08:43:22.368 [INFO ] [WSServer] Connected
+2026-05-06 13:48:05.130 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 13:48:15.201 [INFO ] LLM: ChatGPT (gpt-4o-mini-2024-07-18)
+2026-05-06 13:49:48.351 [INFO ] LLM: Gemini (gemini-3.1-flash-lite-preview)
+2026-05-06 14:21:28.936 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:28.957 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:28.957 [INFO ] [Manager] Instance started: joy
+2026-05-06 14:21:28.965 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:28.965 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:28.965 [INFO ] [Manager] Instance started: sys
+2026-05-06 14:21:28.972 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:28.972 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:28.972 [INFO ] [Manager] Instance started: test
+2026-05-06 14:21:28.972 [INFO ] Agentic Loop Go server starting on :8884
+2026-05-06 14:21:28.972 [INFO ] Configs dir: configs
+2026-05-06 14:21:28.972 [INFO ] Endpoints (master):
+2026-05-06 14:21:28.973 [INFO ]   GET  /health                — Health check
+2026-05-06 14:21:28.973 [INFO ]   GET  /settings              — Settings page
+2026-05-06 14:21:28.973 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 14:21:28.973 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 14:21:28.973 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 14:21:28.973 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 14:21:28.973 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 14:21:28.973 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 14:21:28.973 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 14:21:28.973 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 14:21:28.973 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 14:21:28.973 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 14:21:28.973 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 14:21:28.973 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 14:21:28.973 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 14:21:28.975 [ERROR] listen tcp :8884: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+2026-05-06 14:21:41.776 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:41.797 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:41.797 [INFO ] [Manager] Instance started: joy
+2026-05-06 14:21:41.804 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:41.804 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:41.804 [INFO ] [Manager] Instance started: sys
+2026-05-06 14:21:41.813 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:41.813 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:41.813 [INFO ] [Manager] Instance started: test
+2026-05-06 14:21:41.813 [INFO ] Agentic Loop Go server starting on :8884
+2026-05-06 14:21:41.813 [INFO ] Configs dir: configs
+2026-05-06 14:21:41.813 [INFO ] Endpoints (master):
+2026-05-06 14:21:41.813 [INFO ]   GET  /health                — Health check
+2026-05-06 14:21:41.813 [INFO ]   GET  /settings              — Settings page
+2026-05-06 14:21:41.813 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 14:21:41.813 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 14:21:41.813 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 14:21:41.813 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 14:21:41.813 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 14:21:41.813 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 14:21:41.813 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 14:21:41.814 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 14:21:41.814 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 14:21:41.814 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 14:21:41.814 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 14:21:41.814 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 14:21:41.814 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 14:21:41.815 [ERROR] listen tcp :8884: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+2026-05-06 14:21:53.949 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:53.970 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:53.970 [INFO ] [Manager] Instance started: joy
+2026-05-06 14:21:53.977 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:53.977 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:53.977 [INFO ] [Manager] Instance started: sys
+2026-05-06 14:21:53.985 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:21:53.986 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:21:53.986 [INFO ] [Manager] Instance started: test
+2026-05-06 14:21:53.986 [INFO ] Agentic Loop Go server starting on :8885
+2026-05-06 14:21:53.986 [INFO ] Configs dir: configs
+2026-05-06 14:21:53.986 [INFO ] Endpoints (master):
+2026-05-06 14:21:53.986 [INFO ]   GET  /health                — Health check
+2026-05-06 14:21:53.986 [INFO ]   GET  /settings              — Settings page
+2026-05-06 14:21:53.986 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 14:21:53.986 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 14:21:53.986 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 14:21:53.986 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 14:21:53.986 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 14:21:53.986 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 14:21:53.986 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 14:21:53.986 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 14:21:53.986 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 14:21:53.987 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 14:21:53.987 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 14:21:53.987 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 14:21:53.987 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 14:27:26.042 [INFO ] [WSServer] Connected
+2026-05-06 14:27:26.050 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-05-06 14:27:26.053 [INFO ] [WSServer] Connected
+2026-05-06 14:27:28.390 [INFO ] [WSServer] Connected
+2026-05-06 14:27:28.393 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-05-06 14:27:31.158 [INFO ] [WSServer] Connected
+2026-05-06 14:27:42.366 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:27:42.373 [INFO ] [WSServer] New session: sess-1778045246034-wwl9a82 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:27:55.031 [INFO ] [WSServer] Continuing session: sess-1778045246034-wwl9a82 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:28:32.248 [INFO ] [WSServer] Continuing session: sess-1778045246034-wwl9a82 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:28:52.575 [INFO ] [WSServer] Continuing session: sess-1778045246034-wwl9a82 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:30:01.939 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:30:01.958 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:30:01.958 [INFO ] [Manager] Instance started: joy
+2026-05-06 14:30:01.967 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:30:01.967 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:30:01.967 [INFO ] [Manager] Instance started: sys
+2026-05-06 14:30:01.974 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:30:01.974 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:30:01.974 [INFO ] [Manager] Instance started: test
+2026-05-06 14:30:01.976 [INFO ] Agentic Loop Go server starting on :8885
+2026-05-06 14:30:01.976 [INFO ] Configs dir: configs
+2026-05-06 14:30:01.976 [INFO ] Endpoints (master):
+2026-05-06 14:30:01.976 [INFO ]   GET  /health                — Health check
+2026-05-06 14:30:01.976 [INFO ]   GET  /settings              — Settings page
+2026-05-06 14:30:01.976 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 14:30:01.976 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 14:30:01.976 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 14:30:01.976 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 14:30:01.976 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 14:30:01.976 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 14:30:01.976 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 14:30:01.976 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 14:30:01.976 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 14:30:01.976 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 14:30:01.976 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 14:30:01.976 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 14:30:01.976 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 14:30:06.246 [INFO ] [WSServer] Connected
+2026-05-06 14:30:10.364 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:30:10.371 [INFO ] [WSServer] New session: sess-1778045405260-e5il4c6 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:30:17.694 [INFO ] [WSServer] Continuing session: sess-1778045405260-e5il4c6 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:30:27.390 [INFO ] [WSServer] Continuing session: sess-1778045405260-e5il4c6 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:30:35.174 [INFO ] [WSServer] Continuing session: sess-1778045405260-e5il4c6 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:33:37.872 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:33:37.892 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:33:37.892 [INFO ] [Manager] Instance started: joy
+2026-05-06 14:33:37.900 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:33:37.900 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:33:37.900 [INFO ] [Manager] Instance started: sys
+2026-05-06 14:33:37.908 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:33:37.909 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:33:37.909 [INFO ] [Manager] Instance started: test
+2026-05-06 14:33:37.909 [INFO ] Agentic Loop Go server starting on :8885
+2026-05-06 14:33:37.909 [INFO ] Configs dir: configs
+2026-05-06 14:33:37.909 [INFO ] Endpoints (master):
+2026-05-06 14:33:37.909 [INFO ]   GET  /health                — Health check
+2026-05-06 14:33:37.909 [INFO ]   GET  /settings              — Settings page
+2026-05-06 14:33:37.909 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 14:33:37.909 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 14:33:37.909 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 14:33:37.909 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 14:33:37.909 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 14:33:37.909 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 14:33:37.909 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 14:33:37.909 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 14:33:37.909 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 14:33:37.909 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 14:33:37.909 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 14:33:37.909 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 14:33:37.909 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 14:33:41.099 [INFO ] [WSServer] Connected
+2026-05-06 14:33:44.372 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:33:44.383 [INFO ] [WSServer] New session: sess-1778045619562-ntl25f8 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:33:52.579 [INFO ] [WSServer] Continuing session: sess-1778045619562-ntl25f8 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:34:01.389 [INFO ] [WSServer] Continuing session: sess-1778045619562-ntl25f8 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:34:31.219 [INFO ] [WSServer] Connected
+2026-05-06 14:34:35.407 [INFO ] [WSServer] Read error: websocket: close 1001 (going away)
+2026-05-06 14:34:36.425 [INFO ] [WSServer] Continuing session: sess-1778045619562-ntl25f8 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:34:53.443 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:34:53.464 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:34:53.464 [INFO ] [Manager] Instance started: joy
+2026-05-06 14:34:53.471 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:34:53.472 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:34:53.472 [INFO ] [Manager] Instance started: sys
+2026-05-06 14:34:53.479 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:34:53.479 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 14:34:53.479 [INFO ] [Manager] Instance started: test
+2026-05-06 14:34:53.479 [INFO ] Agentic Loop Go server starting on :8885
+2026-05-06 14:34:53.479 [INFO ] Configs dir: configs
+2026-05-06 14:34:53.479 [INFO ] Endpoints (master):
+2026-05-06 14:34:53.479 [INFO ]   GET  /health                — Health check
+2026-05-06 14:34:53.480 [INFO ]   GET  /settings              — Settings page
+2026-05-06 14:34:53.480 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 14:34:53.480 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 14:34:53.480 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 14:34:53.480 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 14:34:53.480 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 14:34:53.480 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 14:34:53.480 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 14:34:53.480 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 14:34:53.480 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 14:34:53.480 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 14:34:53.480 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 14:34:53.480 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 14:34:53.480 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 14:34:55.611 [INFO ] [WSServer] Connected
+2026-05-06 14:34:55.611 [INFO ] [WSServer] Read error: read tcp [::1]:8885->[::1]:57563: wsarecv: An established connection was aborted by the software in your host machine.
+2026-05-06 14:34:55.622 [INFO ] [WSServer] Connected
+2026-05-06 14:35:07.305 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 14:35:07.313 [INFO ] [WSServer] New session: sess-1778045695607-mttrdba (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:35:12.315 [INFO ] [WSServer] Continuing session: sess-1778045695607-mttrdba (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:35:19.499 [INFO ] [WSServer] Continuing session: sess-1778045695607-mttrdba (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 14:35:27.091 [INFO ] [WSServer] Continuing session: sess-1778045695607-mttrdba (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:09:53.472 [INFO ] [WSServer] Session expired: sess-1778045695607-mttrdba (user=sys)
+2026-05-06 15:09:53.472 [INFO ] [WSServer] Read error: read tcp [::1]:8885->[::1]:53518: use of closed network connection
+2026-05-06 15:33:45.620 [INFO ] [WSServer] Connected
+2026-05-06 15:33:51.065 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:33:51.086 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 15:33:51.086 [INFO ] [Manager] Instance started: joy
+2026-05-06 15:33:51.094 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:33:51.094 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 15:33:51.094 [INFO ] [Manager] Instance started: sys
+2026-05-06 15:33:51.102 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:33:51.102 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 15:33:51.102 [INFO ] [Manager] Instance started: test
+2026-05-06 15:33:51.102 [INFO ] Agentic Loop Go server starting on :8885
+2026-05-06 15:33:51.102 [INFO ] Configs dir: configs
+2026-05-06 15:33:51.102 [INFO ] Endpoints (master):
+2026-05-06 15:33:51.102 [INFO ]   GET  /health                — Health check
+2026-05-06 15:33:51.102 [INFO ]   GET  /settings              — Settings page
+2026-05-06 15:33:51.103 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 15:33:51.103 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 15:33:51.103 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 15:33:51.103 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 15:33:51.103 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 15:33:51.103 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 15:33:51.103 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 15:33:51.103 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 15:33:51.103 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 15:33:51.103 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 15:33:51.103 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 15:33:51.103 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 15:33:51.103 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 15:33:53.141 [INFO ] [WSServer] Connected
+2026-05-06 15:33:56.475 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:33:56.483 [INFO ] [WSServer] New session: sess-1778049227324-hpb4aw9 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:34:04.022 [INFO ] [WSServer] Continuing session: sess-1778049227324-hpb4aw9 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:34:44.517 [INFO ] [WSServer] Continuing session: sess-1778049227324-hpb4aw9 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:35:01.645 [INFO ] [WSServer] Continuing session: sess-1778049227324-hpb4aw9 (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:36:28.362 [INFO ] [WSServer] Session cleared: sess-1778049227324-hpb4aw9 (user=sys)
+2026-05-06 15:36:34.198 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:36:34.219 [INFO ] [Instance:joy] Ready (machbase=http://127.0.0.1:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 15:36:34.219 [INFO ] [Manager] Instance started: joy
+2026-05-06 15:36:34.227 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:36:34.227 [INFO ] [Instance:sys] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 15:36:34.227 [INFO ] [Manager] Instance started: sys
+2026-05-06 15:36:34.235 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:36:34.236 [INFO ] [Instance:test] Ready (machbase=http://192.168.1.238:5654, provider=claude, model=claude-haiku-4-5-20251001)
+2026-05-06 15:36:34.236 [INFO ] [Manager] Instance started: test
+2026-05-06 15:36:34.236 [INFO ] Agentic Loop Go server starting on :8885
+2026-05-06 15:36:34.236 [INFO ] Configs dir: configs
+2026-05-06 15:36:34.236 [INFO ] Endpoints (master):
+2026-05-06 15:36:34.236 [INFO ]   GET  /health                — Health check
+2026-05-06 15:36:34.236 [INFO ]   GET  /settings              — Settings page
+2026-05-06 15:36:34.236 [INFO ]   GET  /api/instances         — List running instances
+2026-05-06 15:36:34.236 [INFO ]   POST /api/configs           — Save config + start instance
+2026-05-06 15:36:34.236 [INFO ]   GET  /api/configs           — List configs
+2026-05-06 15:36:34.236 [INFO ]   GET  /api/configs/{name}    — Get config
+2026-05-06 15:36:34.236 [INFO ]   PUT  /api/configs/{name}    — Update config + restart instance
+2026-05-06 15:36:34.236 [INFO ]   DELETE /api/configs/{name}  — Delete config + stop instance
+2026-05-06 15:36:34.236 [INFO ] Endpoints (per-instance: /{name}/...):
+2026-05-06 15:36:34.236 [INFO ]   POST /{name}/api/chat         — Non-streaming chat
+2026-05-06 15:36:34.236 [INFO ]   POST /{name}/api/chat/stream  — SSE streaming chat
+2026-05-06 15:36:34.236 [INFO ]   GET  /{name}/api/settings     — Get instance config
+2026-05-06 15:36:34.236 [INFO ]   POST /{name}/api/restart-llm  — Restart instance LLM
+2026-05-06 15:36:34.237 [INFO ]   GET  /{name}/ws               — WebSocket (Chat UI)
+2026-05-06 15:36:34.237 [INFO ]   GET  /{name}/health           — Instance health
+2026-05-06 15:36:36.155 [INFO ] [WSServer] Connected
+2026-05-06 15:36:39.493 [INFO ] LLM: Claude (claude-haiku-4-5-20251001)
+2026-05-06 15:36:39.504 [INFO ] [WSServer] New session: sess-1778049388362-dnkbeuo (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:36:44.516 [INFO ] [WSServer] Continuing session: sess-1778049388362-dnkbeuo (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:36:54.628 [INFO ] [WSServer] Continuing session: sess-1778049388362-dnkbeuo (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 15:37:10.516 [INFO ] [WSServer] Continuing session: sess-1778049388362-dnkbeuo (user=sys, claude/claude-haiku-4-5-20251001)
+2026-05-06 16:11:34.228 [INFO ] [WSServer] Session expired: sess-1778049388362-dnkbeuo (user=sys)
+2026-05-06 16:11:34.228 [INFO ] [WSServer] Read error: read tcp [::1]:8885->[::1]:51410: use of closed network connection

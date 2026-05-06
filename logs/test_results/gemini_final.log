@@ -1,0 +1,98 @@
+[ReportTemplates] Found dir: C:\Users\MACH-DE-28\Desktop\neo-pkg-llm-main-test\neo\report
+[Templates] Found at: C:\Users\MACH-DE-28\Desktop\neo-pkg-llm-main-test\neo\tql\tql-analysis-templates.md
+[ReportTemplates] Loaded 4 templates: [R-3 R-1 R-0 R-2]
+2026-05-06 14:16:17.647 [INFO ] LLM: Gemini (gemini-2.5-flash)
+============================================================
+Provider: gemini | Model: gemini-2.5-flash
+============================================================
+
+************************************************************
+*** Turn 1: SILVER 테이블 데이터 조회해줘
+************************************************************
+
+[Agent] Skill: DataQuery | Workflows: [] | ToolGroups: [] | Tools: 3/3
+[Templates] Loaded 17 templates: [1-5 1-6 2-3 3-1 2-1 2-6 3-2 1-2 2-5 1-1 2-2 2-4 2-7 3-3 3-4 1-3 1-4]
+
+[Agent] Agentic Loop 시작...
+============================================================
+[Gemini] shared cache created (system only): cachedContents/rhlyqbfqa7262lzdpg6xgxp2mhbexuyhomzoul7j (model=gemini-2.5-flash)
+[Gemini] cached content may have expired, retrying without cache
+
+[Step 1] 도구 호출: execute_sql_query
+  ├─ sql_query: SELECT * FROM SILVER
+  └─ ✓: NAME,TIME,VALUE
+open,2023-09-21 00:00:00,23.42
+open,2023-09-21 01:00:00,23.43
+open,2023-09-21 02:00:00,23.47
+open,2023-09-21 03:00:00,23.51
+open,2023-09-21 04:00:00,23.49
+open,2023-09-21 05:00:00,23.4
+open,2023-09-21 06:00:00,23.48
+open,2023-09-21 07:00:00,23.5
+open,2023-09-21 08:00:00,23.42
+open,2023-09-21 09:00:00,23.16
+open,2023-09-21 10:00:00,23.26
+open,2023-09-21 11:00:00,23.61
+open,2023-09-21 12:00:00,23.58
+open,2023-09-21 13:00:00,23.67
+open,2023-09-21 14:00:00,23.73
+open,2023-09-21 15:00... (총 2128091자)
+------------------------------------------------------------
+[Gemini] API error body: {
+  "error": {
+    "code": 400,
+    "message": "The input token count exceeds the maximum number of tokens allowed 1048576.",
+    "status": "INVALID_ARGUMENT"
+  }
+}
+
+ERROR at turn 1: LLM call failed at step 1: [Gemini] API 요청이 실패했습니다. (상태 코드: 400) (HTTP 400)
+
+************************************************************
+*** Turn 2: 이거 대시보드로 보여줘
+************************************************************
+
+[Agent] Skill switch: DataQuery → BasicAnalysis (system prompt rebuilt)
+
+[Agent] Agentic Loop 시작...
+============================================================
+[Gemini] API error body: {
+  "error": {
+    "code": 429,
+    "message": "You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_paid_tier_input_token_count, limit: 1000000, model: gemini-2.5-flash\nPlease retry in 18.886334926s.",
+    "status": "RESOURCE_EXHAUSTED",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.Help",
+        "links": [
+          {
+            "description": "Learn more about Gemini API quotas",
+            "url": "https://ai.google.dev/gemini-api/docs/rate-limits"
+          }
+        ]
+      },
+      {
+        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+        "violations": [
+          {
+            "quotaMetric": "generativelanguage.googleapis.com/generate_content_paid_tier_input_token_count",
+            "quotaId": "GenerateContentPaidTierInputTokensPerModelPerMinute",
+            "quotaDimensions": {
+              "location": "global",
+              "model": "gemini-2.5-flash"
+            },
+            "quotaValue": "1000000"
+          }
+        ]
+      },
+      {
+        "@type": "type.googleapis.com/google.rpc.RetryInfo",
+        "retryDelay": "18s"
+      }
+    ]
+  }
+}
+
+ERROR at turn 2: LLM call failed at step 0: [Gemini] API 사용량 한도를 초과했습니다. 잠시 후 다시 시도해주세요. (HTTP 429)
+
+*** Test complete ***

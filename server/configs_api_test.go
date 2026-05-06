@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"encoding/json"
@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"neo-pkg-llm/config"
 )
 
 // apiResp mirrors the standard configs API response envelope.
@@ -230,8 +232,8 @@ func TestGetConfigByName_Success(t *testing.T) {
 		t.Errorf("expected success=true, reason=%q", r.Reason)
 	}
 	var data struct {
-		Config  Config `json:"config"`
-		Running bool   `json:"running"`
+		Config  config.Config `json:"config"`
+		Running bool          `json:"running"`
 	}
 	if err := json.Unmarshal(r.Data, &data); err != nil {
 		t.Fatalf("data is not valid JSON: %v", err)
@@ -275,7 +277,7 @@ func TestGetConfigByName_OverwriteOnRepost(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	raw, _ := os.ReadFile(filepath.Join(cfgDir, "alice.json"))
-	var cfg Config
+	var cfg config.Config
 	json.Unmarshal(raw, &cfg)
 	if cfg.Machbase.Host != "10.0.0.1" {
 		t.Errorf("expected overwritten host 10.0.0.1, got %q", cfg.Machbase.Host)
@@ -316,7 +318,7 @@ func TestPutConfigByName_Success(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	r = decodeResp(t, w)
 	var getResp struct {
-		Config Config `json:"config"`
+		Config config.Config `json:"config"`
 	}
 	json.Unmarshal(r.Data, &getResp)
 	if getResp.Config.Machbase.Host != "10.0.0.1" {

@@ -11,10 +11,11 @@ import (
 	"strings"
 
 	"neo-pkg-llm/agent"
-	"neo-pkg-llm/llm"
+	"neo-pkg-llm/config"
 	"neo-pkg-llm/logger"
 	"neo-pkg-llm/machbase"
 	"neo-pkg-llm/mcp"
+	"neo-pkg-llm/server"
 	"neo-pkg-llm/tools"
 )
 
@@ -41,7 +42,7 @@ func main() {
 	}
 	defer logger.Std().Close()
 
-	cfg := LoadConfig(*configPath)
+	cfg := config.LoadConfig(*configPath)
 
 	// CLI flags override config.json
 	if *providerFlag != "" {
@@ -73,73 +74,28 @@ func main() {
 	}
 }
 
-// newLLMSafe creates the appropriate LLM client based on config, returning an error instead of fatal.
-func newLLMSafe(cfg *Config) (llm.LLMProvider, error) {
-	modelID := cfg.ResolveModelID()
-
-	switch strings.ToLower(cfg.ResolveProvider()) {
-	case "claude":
-		if cfg.Claude.APIKey == "" {
-			return nil, fmt.Errorf("Claude API key is required")
-		}
-		logger.Infof("LLM: Claude (%s)", modelID)
-		return llm.NewClaudeClient(cfg.Claude.APIKey, modelID), nil
-
-	case "chatgpt":
-		if cfg.ChatGPT.APIKey == "" {
-			return nil, fmt.Errorf("ChatGPT API key is required")
-		}
-		logger.Infof("LLM: ChatGPT (%s)", modelID)
-		return llm.NewChatGPTClient(cfg.ChatGPT.APIKey, modelID), nil
-
-	case "gemini":
-		if cfg.Gemini.APIKey == "" {
-			return nil, fmt.Errorf("Gemini API key is required")
-		}
-		logger.Infof("LLM: Gemini (%s)", modelID)
-		return llm.NewGeminiClient(cfg.Gemini.APIKey, modelID), nil
-
-	case "ollama":
-		ollamaURL := cfg.OllamaURL()
-		logger.Infof("LLM: Ollama (%s) at %s", modelID, ollamaURL)
-		return llm.NewOllamaClient(ollamaURL, modelID), nil
-
-	default:
-		return nil, fmt.Errorf("unknown provider: %s (use 'claude', 'chatgpt', 'gemini', or 'ollama')", cfg.ResolveProvider())
-	}
-}
-
-// newLLM creates the LLM client, fataling on error (used at startup).
-func newLLM(cfg *Config) llm.LLMProvider {
-	client, err := newLLMSafe(cfg)
-	if err != nil {
-		logger.Fatalf("%v", err)
-	}
-	return client
-}
-
 // --- MCP Server Mode (stdio JSON-RPC) ---
 
-func runMCP(cfg *Config) {
+func runMCP(cfg *config.Config) {
 	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
 
-	server := mcp.NewServer(registry)
-	if err := server.Run(); err != nil {
+	srv := mcp.NewServer(registry)
+	if err := srv.Run(); err != nil {
 		logger.Fatalf("MCP server error: %v", err)
 	}
 }
 
 // --- WebSocket Client Mode ---
 
-func runWS(cfg *Config, neoURL string) {
+func runWS(cfg *config.Config, neoURL string) {
 	if neoURL == "" {
 		logger.Fatalf("--neo-ws-url is required for ws mode")
 	}
 	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
 
-	llmClient, err := newLLMSafe(cfg)
+	llmClient, err := server.NewLLMSafe(cfg)
 	if err != nil {
 		logger.Warnf("LLM init failed (will report on chat): %v", err)
 	}
@@ -147,16 +103,16 @@ func runWS(cfg *Config, neoURL string) {
 	logger.Infof("WebSocket client mode: connecting to %s", neoURL)
 	logger.Infof("Machbase: %s | Provider: %s | Model: %s", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
 
-	client := newWSClient(neoURL, llmClient, registry)
+	client := server.NewWSClient(neoURL, llmClient, registry)
 	client.Run()
 }
 
 // --- CLI Mode ---
 
-func runCLI(cfg *Config) {
+func runCLI(cfg *config.Config) {
 	mc := machbase.NewClient(cfg.MachbaseURL(), cfg.Machbase.User, cfg.Machbase.Password)
 	registry := tools.NewRegistry(mc)
-	llmClient := newLLM(cfg)
+	llmClient := server.NewLLM(cfg)
 
 	fmt.Println("=== Agentic Loop Go (CLI) ===")
 	fmt.Printf("Machbase: %s | Provider: %s | Model: %s\n", cfg.MachbaseURL(), cfg.ResolveProvider(), cfg.ResolveModelID())
@@ -190,12 +146,12 @@ func runCLI(cfg *Config) {
 
 const configsDir = "configs"
 
-func runServer(cfg *Config, port string) {
+func runServer(cfg *config.Config, port string) {
 	if err := os.MkdirAll(configsDir, 0755); err != nil {
 		logger.Fatalf("failed to create configs directory: %v", err)
 	}
 
-	mgr := NewManager(configsDir)
+	mgr := server.NewManager(configsDir)
 	mgr.LoadAll()
 
 	// Master-level routes
