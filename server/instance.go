@@ -100,6 +100,11 @@ func (inst *Instance) registerHandlers() {
 	inst.mux.HandleFunc("/api/chat", inst.handleChat)
 	inst.mux.HandleFunc("/api/chat/stream", inst.handleChatStream)
 	inst.mux.Handle("/ws", inst.wsServ)
+
+	// Machbase proxy — machbase-neo 로 중계
+	inst.mux.HandleFunc("POST /db/tql", inst.proxyMachbase)
+	inst.mux.HandleFunc("GET /web/", inst.proxyMachbaseWeb)
+	inst.mux.HandleFunc("POST /web/", inst.proxyMachbaseWeb)
 }
 
 // ServeHTTP dispatches to the per-instance mux.
