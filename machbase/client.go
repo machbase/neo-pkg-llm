@@ -2,6 +2,7 @@ package machbase
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,6 +153,49 @@ func (c *Client) doWithRetry(buildReq func() (*http.Request, error)) ([]byte, er
 	}
 
 	return body, nil
+}
+
+// --- Forward (proxy) ---
+
+// Forward proxies an arbitrary request to machbase-neo and returns the raw response.
+// The caller must close resp.Body.
+// /web/* 경로는 user/password가 설정된 경우 JWT 인증을 사용한다.
+// 그 외 경로는 인증 헤더를 추가하지 않는다(Content-Type 만 전달).
+func (c *Client) Forward(ctx context.Context, method, path, rawQuery string, body io.Reader, contentType string, extraHeaders ...http.Header) (*http.Response, error) {
+	c.mu.Lock()
+	base := c.BaseURL
+	c.mu.Unlock()
+
+	u := base + path
+	if rawQuery != "" {
+		u += "?" + rawQuery
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for _, h := range extraHeaders {
+		for key, values := range h {
+			for _, v := range values {
+				req.Header.Set(key, v)
+			}
+		}
+	}
+
+	// /web/* paths use JWT auth when user is configured
+	if strings.HasPrefix(path, "/web/") && c.User != "" {
+		token, err := c.getJWT()
+		if err != nil {
+			return nil, fmt.Errorf("auth: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	return c.tqlClient.Do(req)
 }
 
 // --- DB API (no auth) ---

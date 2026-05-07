@@ -248,6 +248,9 @@ func runServer(cfg *Config, port string) {
 	logger.Infof("  POST /{name}/api/restart-llm  — Restart instance LLM")
 	logger.Infof("  GET  /{name}/ws               — WebSocket (Chat UI)")
 	logger.Infof("  GET  /{name}/health           — Instance health")
+	logger.Infof("  POST /{name}/db/tql           — Proxy → machbase-neo /db/tql")
+	logger.Infof("  GET  /{name}/web/*            — Proxy → machbase-neo /web/*")
+	logger.Infof("  POST /{name}/web/*            — Proxy → machbase-neo /web/*")
 
 	if err := http.ListenAndServe(":"+port, corsMiddleware(handler)); err != nil {
 		logger.Fatalf("%v", err)
