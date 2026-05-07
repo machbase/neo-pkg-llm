@@ -3,64 +3,49 @@ package main
 import (
 	"io"
 	"net/http"
+
+	"neo-pkg-llm/logger"
 )
 
-// proxyMachbase godoc
-// POST /db/tql
-// 프론트엔드 요청을 machbase-neo 로 중계한다.
+// proxyMachbase forwards POST /db/tql to machbase-neo without auth.
 func (inst *Instance) proxyMachbase(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
 	resp, err := inst.mc.Forward(
 		r.Context(),
 		r.Method,
-		path,
+		r.URL.Path,
 		r.URL.RawQuery,
 		r.Body,
 		r.Header.Get("Content-Type"),
 	)
 	if err != nil {
+		logger.Errorf("[Instance:%s] proxy /db/tql failed: %v", inst.name, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
-
-	for key, values := range resp.Header {
-		for _, v := range values {
-			w.Header().Add(key, v)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body) //nolint:errcheck
+	copyResponse(w, resp)
 }
 
-// proxyMachbaseWeb godoc
-// GET/POST /web/*
-// /web/* 요청을 machbase-neo 로 중계한다.
-// Authorization 헤더가 있으면 그대로 전달한다.
+// proxyMachbaseWeb forwards GET/POST /web/* to machbase-neo with JWT auth.
 func (inst *Instance) proxyMachbaseWeb(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
-	var extra []http.Header
-	if auth := r.Header.Get("Authorization"); auth != "" {
-		extra = append(extra, http.Header{"Authorization": {auth}})
-	}
-
 	resp, err := inst.mc.Forward(
 		r.Context(),
 		r.Method,
-		path,
+		r.URL.Path,
 		r.URL.RawQuery,
 		r.Body,
 		r.Header.Get("Content-Type"),
-		extra...,
 	)
 	if err != nil {
+		logger.Errorf("[Instance:%s] proxy %s failed: %v", inst.name, r.URL.Path, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+	copyResponse(w, resp)
+}
 
+func copyResponse(w http.ResponseWriter, resp *http.Response) {
 	for key, values := range resp.Header {
 		for _, v := range values {
 			w.Header().Add(key, v)

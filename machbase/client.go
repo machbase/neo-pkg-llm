@@ -188,11 +188,11 @@ func (c *Client) Forward(ctx context.Context, method, path, rawQuery string, bod
 
 	// /web/* paths use JWT auth when user is configured
 	if strings.HasPrefix(path, "/web/") && c.User != "" {
-		token, err := c.getJWT()
+		headers, err := c.authHeaders()
 		if err != nil {
 			return nil, fmt.Errorf("auth: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", headers.Get("Authorization"))
 	}
 
 	return c.tqlClient.Do(req)
