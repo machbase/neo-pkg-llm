@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -95,6 +96,22 @@ func (m *Manager) getInstance(name string) *Instance {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.instances[name]
+}
+
+// firstInstance returns the alphabetically-first Instance, or nil if none exist.
+// Used for relay routes that don't carry an instance prefix.
+func (m *Manager) firstInstance() *Instance {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.instances) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(m.instances))
+	for n := range m.instances {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return m.instances[names[0]]
 }
 
 // RouteInstance extracts the instance name from the first URL path segment

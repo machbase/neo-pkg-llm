@@ -224,6 +224,15 @@ func runServer(cfg *Config, port string) {
 		case strings.HasPrefix(path, "/api/"):
 			masterMux.ServeHTTP(w, r)
 			return
+		case path == "/db/tql" || strings.HasPrefix(path, "/web/"):
+			// Relay routes — forward to the first instance's mux
+			inst := mgr.firstInstance()
+			if inst == nil {
+				http.Error(w, "no instance available", http.StatusServiceUnavailable)
+				return
+			}
+			inst.ServeHTTP(w, r)
+			return
 		}
 
 		// Per-instance routing: /{name}/ws, /{name}/api/chat, ...
@@ -241,6 +250,9 @@ func runServer(cfg *Config, port string) {
 	logger.Infof("  GET  /api/configs/{name}    — Get config")
 	logger.Infof("  PUT  /api/configs/{name}    — Update config + restart instance")
 	logger.Infof("  DELETE /api/configs/{name}  — Delete config + stop instance")
+	logger.Infof("  POST /db/tql                — Proxy → machbase-neo /db/tql")
+	logger.Infof("  GET  /web/*                 — Proxy → machbase-neo /web/*")
+	logger.Infof("  POST /web/*                 — Proxy → machbase-neo /web/*")
 	logger.Infof("Endpoints (per-instance: /{name}/...):")
 	logger.Infof("  POST /{name}/api/chat         — Non-streaming chat")
 	logger.Infof("  POST /{name}/api/chat/stream  — SSE streaming chat")
@@ -248,9 +260,6 @@ func runServer(cfg *Config, port string) {
 	logger.Infof("  POST /{name}/api/restart-llm  — Restart instance LLM")
 	logger.Infof("  GET  /{name}/ws               — WebSocket (Chat UI)")
 	logger.Infof("  GET  /{name}/health           — Instance health")
-	logger.Infof("  POST /{name}/db/tql           — Proxy → machbase-neo /db/tql")
-	logger.Infof("  GET  /{name}/web/*            — Proxy → machbase-neo /web/*")
-	logger.Infof("  POST /{name}/web/*            — Proxy → machbase-neo /web/*")
 
 	if err := http.ListenAndServe(":"+port, corsMiddleware(handler)); err != nil {
 		logger.Fatalf("%v", err)
